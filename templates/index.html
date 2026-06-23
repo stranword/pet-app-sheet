@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>СборкаV3</title>
+<script src="https://unpkg.com/jsqr@1.4.0/dist/jsQR.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #222; }
+
+  /* Tabs */
+  .tabs { display: flex; background: #1a73e8; position: sticky; top: 0; z-index: 10; }
+  .tab { flex: 1; padding: 14px 4px; text-align: center; color: rgba(255,255,255,0.7); font-size: 13px; font-weight: 600; cursor: pointer; border-bottom: 3px solid transparent; transition: all .2s; }
+  .tab.active { color: #fff; border-bottom-color: #fff; }
+
+  /* List */
+  .list { padding: 12px; padding-bottom: 80px; }
+  .card { background: #fff; border-radius: 10px; padding: 14px; margin-bottom: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+  .card-shk { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
+  .card-meta { font-size: 13px; color: #666; display: flex; gap: 12px; flex-wrap: wrap; }
+  .card-actions { margin-top: 10px; display: flex; gap: 8px; }
+  .btn-edit { background: #1a73e8; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
+  .btn-del { background: #ea4335; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
+  .empty { text-align: center; color: #999; padding: 40px 20px; font-size: 15px; }
+
+  /* FAB */
+  .fab { position: fixed; bottom: 24px; right: 24px; width: 56px; height: 56px; background: #1a73e8; border-radius: 28px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,.3); cursor: pointer; z-index: 20; border: none; }
+  .fab svg { fill: white; width: 28px; height: 28px; }
+
+  /* Overlay */
+  .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 30; }
+  .overlay.open { display: flex; align-items: flex-end; }
+  .modal { background: #fff; border-radius: 20px 20px 0 0; padding: 20px; width: 100%; max-height: 90vh; overflow-y: auto; }
+  .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 16px; }
+
+  /* Form */
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 13px; color: #555; margin-bottom: 4px; }
+  .field input { width: 100%; border: 1px solid #ddd; border-radius: 8px; padding: 10px 12px; font-size: 16px; }
+  .field input:focus { outline: none; border-color: #1a73e8; }
+
+  /* Counter */
+  .counter { display: flex; align-items: center; gap: 10px; }
+  .counter button { width: 36px; height: 36px; border-radius: 18px; border: 1px solid #ddd; background: #f0f0f0; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .counter input { width: 70px; text-align: center; }
+
+  /* Scan btn */
+  .scan-row { display: flex; gap: 8px; }
+  .scan-row input { flex: 1; }
+  .btn-scan { background: #34a853; color: white; border: none; border-radius: 8px; padding: 0 16px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+
+  /* Camera modal */
+  .cam-overlay { display: none; position: fixed; inset: 0; background: #000; z-index: 50; flex-direction: column; }
+  .cam-overlay.open { display: flex; }
+  #cam-video { width: 100%; flex: 1; object-fit: cover; }
+  .cam-line { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 70vw; height: 70vw; border: 3px solid #fff; border-radius: 12px; }
+  .cam-close { position: absolute; top: 16px; right: 16px; background: rgba(0,0,0,.6); color: #fff; border: none; border-radius: 8px; padding: 10px 16px; font-size: 15px; cursor: pointer; z-index: 51; }
+  canvas { display: none; }
+
+  /* Submit */
+  .btn-submit { width: 100%; background: #1a73e8; color: #fff; border: none; border-radius: 10px; padding: 14px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 6px; }
+  .btn-cancel { width: 100%; background: #f0f0f0; color: #333; border: none; border-radius: 10px; padding: 14px; font-size: 16px; cursor: pointer; margin-top: 8px; }
+
+  /* Auth bar */
+  .auth-bar { background: #fff3cd; padding: 10px 16px; font-size: 13px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+  .btn-auth { background: #1a73e8; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
+
+  .loading { text-align: center; padding: 30px; color: #999; }
+</style>
+</head>
+<body>
+
+<div class="auth-bar" id="auth-bar">
+  <span id="auth-status">Войдите для добавления/удаления данных</span>
+  <button class="btn-auth" id="btn-login">Войти через Google</button>
+</div>
+
+<div class="tabs" id="tabs">
+  {% for sheet in sheets %}
+  <div class="tab {% if loop.first %}active{% endif %}" data-sheet="{{ sheet }}">{{ sheet }}</div>
+  {% endfor %}
+</div>
+
+<div class="list" id="list">
+  <div class="loading">Загрузка...</div>
+</div>
+
+<button class="fab" id="fab" title="Добавить">
+  <svg viewBox="0 0 24 24"><path d="M19 13H13v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+</button>
+
+<!-- Form modal -->
+<div class="overlay" id="form-overlay">
+  <div class="modal">
+    <div class="modal-title" id="form-title">Добавить запись</div>
+    <form id="row-form">
+      <input type="hidden" id="edit-row">
+
+      <div class="field">
+        <label>ШК (штрихкод)</label>
+        <div class="scan-row">
+          <input type="text" id="f-shk" placeholder="Сканируйте или введите">
+          <button type="button" class="btn-scan" id="btn-scan">📷 Скан</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Количество</label>
+        <div class="counter">
+          <button type="button" onclick="dec('f-kol')">−</button>
+          <input type="number" id="f-kol" value="1" min="0">
+          <button type="button" onclick="inc('f-kol')">+</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Номер короба</label>
+        <div class="counter">
+          <button type="button" onclick="dec('f-korob')">−</button>
+          <input type="number" id="f-korob" value="1" min="0">
+          <button type="button" onclick="inc('f-korob')">+</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Товар</label>
+        <input type="text" id="f-tovar" placeholder="Название товара">
+      </div>
+
+      <div class="field">
+        <label>Арт ВБ</label>
+        <input type="text" id="f-art" placeholder="Артикул">
+      </div>
+
+      <div class="field">
+        <label>Размер</label>
+        <input type="text" id="f-razmer" placeholder="Размер">
+      </div>
+
+      <div class="field">
+        <label>Дата</label>
+        <input type="text" id="f-data">
+      </div>
+
+      <button type="submit" class="btn-submit">Сохранить</button>
+      <button type="button" class="btn-cancel" id="btn-cancel">Отмена</button>
+    </form>
+  </div>
+</div>
+
+<!-- Camera modal -->
+<div class="cam-overlay" id="cam-overlay">
+  <video id="cam-video" autoplay playsinline></video>
+  <div class="cam-line"></div>
+  <canvas id="cam-canvas"></canvas>
+  <button class="cam-close" id="cam-close">✕ Закрыть</button>
+</div>
+
+<script>
+const CLIENT_ID = '{{ google_client_id }}';
+const SHEETS = {{ sheets | tojson }};
+let currentSheet = SHEETS[0];
+let accessToken = null;
+let scanning = false;
+let scanStream = null;
+
+// ---- AUTH ----
+const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
+
+function loadGapi(cb) {
+  const s = document.createElement('script');
+  s.src = 'https://accounts.google.com/gsi/client';
+  s.onload = cb;
+  document.head.appendChild(s);
+}
+
+loadGapi(() => {
+  window.tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: '{{ google_client_id }}',
+    scope: SCOPES,
+    callback: (resp) => {
+      if (resp.error) { alert('Ошибка входа: ' + resp.error); return; }
+      accessToken = resp.access_token;
+      document.getElementById('auth-status').textContent = 'Вы вошли ✓';
+      document.getElementById('btn-login').textContent = 'Сменить аккаунт';
+      document.getElementById('auth-bar').style.background = '#d4edda';
+    },
+  });
+});
+
+document.getElementById('btn-login').addEventListener('click', () => {
+  window.tokenClient.requestAccessToken();
+});
+
+// ---- TABS ----
+document.getElementById('tabs').addEventListener('click', e => {
+  const tab = e.target.closest('.tab');
+  if (!tab) return;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  currentSheet = tab.dataset.sheet;
+  loadRows();
+});
+
+// ---- LOAD ROWS ----
+async function loadRows() {
+  const list = document.getElementById('list');
+  list.innerHTML = '<div class="loading">Загрузка...</div>';
+  try {
+    const resp = await fetch(`/api/rows/${encodeURIComponent(currentSheet)}`);
+    const rows = await resp.json();
+    if (!rows.length) { list.innerHTML = '<div class="empty">Нет данных</div>'; return; }
+    list.innerHTML = rows.map(r => `
+      <div class="card">
+        <div class="card-shk">${r.shk || '—'}</div>
+        <div class="card-meta">
+          <span>Кол: <b>${r.kolichestvo || 0}</b></span>
+          <span>Короб: <b>${r.nomerKoroba || '—'}</b></span>
+          <span>Дата: ${r.data || '—'}</span>
+          ${r.tovar ? `<span>${r.tovar}</span>` : ''}
+        </div>
+        <div class="card-actions">
+          <button class="btn-edit" onclick="openEdit(${r.rowNumber}, ${JSON.stringify(r).replace(/"/g,'&quot;')})">✏️ Изменить</button>
+          <button class="btn-del" onclick="deleteRow(${r.rowNumber})">🗑 Удалить</button>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) {
+    list.innerHTML = `<div class="empty">Ошибка: ${e.message}</div>`;
+  }
+}
+
+// ---- FORM ----
+function today() {
+  const d = new Date();
+  return `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`;
+}
+
+function openAdd() {
+  document.getElementById('form-title').textContent = 'Добавить запись';
+  document.getElementById('edit-row').value = '';
+  document.getElementById('f-shk').value = '';
+  document.getElementById('f-kol').value = '1';
+  document.getElementById('f-korob').value = '1';
+  document.getElementById('f-tovar').value = '';
+  document.getElementById('f-art').value = '';
+  document.getElementById('f-razmer').value = '';
+  document.getElementById('f-data').value = today();
+  document.getElementById('form-overlay').classList.add('open');
+}
+
+function openEdit(rowNumber, row) {
+  document.getElementById('form-title').textContent = 'Изменить запись';
+  document.getElementById('edit-row').value = rowNumber;
+  document.getElementById('f-shk').value = row.shk || '';
+  document.getElementById('f-kol').value = row.kolichestvo || 1;
+  document.getElementById('f-korob').value = row.nomerKoroba || 1;
+  document.getElementById('f-tovar').value = row.tovar || '';
+  document.getElementById('f-art').value = row.artVB || '';
+  document.getElementById('f-razmer').value = row.razmer || '';
+  document.getElementById('f-data').value = row.data || today();
+  document.getElementById('form-overlay').classList.add('open');
+}
+
+document.getElementById('fab').addEventListener('click', openAdd);
+document.getElementById('btn-cancel').addEventListener('click', () => {
+  document.getElementById('form-overlay').classList.remove('open');
+});
+
+document.getElementById('row-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  if (!accessToken) { alert('Сначала войдите через Google'); return; }
+  const rowNumber = document.getElementById('edit-row').value;
+  const body = {
+    shk: document.getElementById('f-shk').value,
+    kolichestvo: document.getElementById('f-kol').value,
+    nomerKoroba: document.getElementById('f-korob').value,
+    tovar: document.getElementById('f-tovar').value,
+    artVB: document.getElementById('f-art').value,
+    razmer: document.getElementById('f-razmer').value,
+    data: document.getElementById('f-data').value,
+  };
+  const method = rowNumber ? 'PUT' : 'POST';
+  const url = rowNumber
+    ? `/api/rows/${encodeURIComponent(currentSheet)}/${rowNumber}`
+    : `/api/rows/${encodeURIComponent(currentSheet)}`;
+  const resp = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) { const e = await resp.json(); alert('Ошибка: ' + JSON.stringify(e)); return; }
+  document.getElementById('form-overlay').classList.remove('open');
+  loadRows();
+});
+
+async function deleteRow(rowNumber) {
+  if (!accessToken) { alert('Сначала войдите через Google'); return; }
+  if (!confirm('Удалить строку?')) return;
+  const resp = await fetch(`/api/rows/${encodeURIComponent(currentSheet)}/${rowNumber}`, {
+    method: 'DELETE',
+    headers: { 'Authorization': `Bearer ${accessToken}` },
+  });
+  if (!resp.ok) { const e = await resp.json(); alert('Ошибка: ' + JSON.stringify(e)); return; }
+  loadRows();
+}
+
+// ---- COUNTER ----
+function inc(id) { const el = document.getElementById(id); el.value = parseInt(el.value || 0) + 1; }
+function dec(id) { const el = document.getElementById(id); el.value = Math.max(0, parseInt(el.value || 0) - 1); }
+
+// ---- SCANNER ----
+document.getElementById('btn-scan').addEventListener('click', openScanner);
+document.getElementById('cam-close').addEventListener('click', closeScanner);
+
+function openScanner() {
+  const overlay = document.getElementById('cam-overlay');
+  overlay.classList.add('open');
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+    .then(stream => {
+      scanStream = stream;
+      const video = document.getElementById('cam-video');
+      video.srcObject = stream;
+      scanning = true;
+      requestAnimationFrame(scanFrame);
+    })
+    .catch(err => {
+      alert('Нет доступа к камере: ' + err.message);
+      overlay.classList.remove('open');
+    });
+}
+
+function closeScanner() {
+  scanning = false;
+  if (scanStream) { scanStream.getTracks().forEach(t => t.stop()); scanStream = null; }
+  document.getElementById('cam-overlay').classList.remove('open');
+}
+
+function scanFrame() {
+  if (!scanning) return;
+  const video = document.getElementById('cam-video');
+  const canvas = document.getElementById('cam-canvas');
+  if (video.readyState !== video.HAVE_ENOUGH_DATA) { requestAnimationFrame(scanFrame); return; }
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0);
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+  if (code) {
+    document.getElementById('f-shk').value = code.data;
+    closeScanner();
+    return;
+  }
+  requestAnimationFrame(scanFrame);
+}
+
+// ---- INIT ----
+loadRows();
+</script>
+</body>
+</html>

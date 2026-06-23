@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: pet-app-sheet
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: SPREADSHEET_ID
+        sync: false
+      - key: SHEETS_API_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
