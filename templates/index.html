@@ -9,12 +9,10 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #222; }
 
-  /* Tabs */
   .tabs { display: flex; background: #1a73e8; position: sticky; top: 0; z-index: 10; }
   .tab { flex: 1; padding: 14px 4px; text-align: center; color: rgba(255,255,255,0.7); font-size: 13px; font-weight: 600; cursor: pointer; border-bottom: 3px solid transparent; transition: all .2s; }
   .tab.active { color: #fff; border-bottom-color: #fff; }
 
-  /* List */
   .list { padding: 12px; padding-bottom: 80px; }
   .card { background: #fff; border-radius: 10px; padding: 14px; margin-bottom: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
   .card-shk { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
@@ -24,33 +22,27 @@
   .btn-del { background: #ea4335; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
   .empty { text-align: center; color: #999; padding: 40px 20px; font-size: 15px; }
 
-  /* FAB */
   .fab { position: fixed; bottom: 24px; right: 24px; width: 56px; height: 56px; background: #1a73e8; border-radius: 28px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,.3); cursor: pointer; z-index: 20; border: none; }
   .fab svg { fill: white; width: 28px; height: 28px; }
 
-  /* Overlay */
   .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 30; }
   .overlay.open { display: flex; align-items: flex-end; }
   .modal { background: #fff; border-radius: 20px 20px 0 0; padding: 20px; width: 100%; max-height: 90vh; overflow-y: auto; }
   .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 16px; }
 
-  /* Form */
   .field { margin-bottom: 14px; }
   .field label { display: block; font-size: 13px; color: #555; margin-bottom: 4px; }
   .field input { width: 100%; border: 1px solid #ddd; border-radius: 8px; padding: 10px 12px; font-size: 16px; }
   .field input:focus { outline: none; border-color: #1a73e8; }
 
-  /* Counter */
   .counter { display: flex; align-items: center; gap: 10px; }
   .counter button { width: 36px; height: 36px; border-radius: 18px; border: 1px solid #ddd; background: #f0f0f0; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
   .counter input { width: 70px; text-align: center; }
 
-  /* Scan btn */
   .scan-row { display: flex; gap: 8px; }
   .scan-row input { flex: 1; }
   .btn-scan { background: #34a853; color: white; border: none; border-radius: 8px; padding: 0 16px; font-size: 13px; cursor: pointer; white-space: nowrap; }
 
-  /* Camera modal */
   .cam-overlay { display: none; position: fixed; inset: 0; background: #000; z-index: 50; flex-direction: column; }
   .cam-overlay.open { display: flex; }
   #cam-video { width: 100%; flex: 1; object-fit: cover; }
@@ -58,13 +50,14 @@
   .cam-close { position: absolute; top: 16px; right: 16px; background: rgba(0,0,0,.6); color: #fff; border: none; border-radius: 8px; padding: 10px 16px; font-size: 15px; cursor: pointer; z-index: 51; }
   canvas { display: none; }
 
-  /* Submit */
   .btn-submit { width: 100%; background: #1a73e8; color: #fff; border: none; border-radius: 10px; padding: 14px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 6px; }
   .btn-cancel { width: 100%; background: #f0f0f0; color: #333; border: none; border-radius: 10px; padding: 14px; font-size: 16px; cursor: pointer; margin-top: 8px; }
 
-  /* Auth bar */
   .auth-bar { background: #fff3cd; padding: 10px 16px; font-size: 13px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+  .auth-bar.ok { background: #d4edda; }
+  .auth-bar-right { display: flex; gap: 8px; align-items: center; }
   .btn-auth { background: #1a73e8; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
+  .btn-admin { background: #555; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer; text-decoration: none; display: inline-block; }
 
   .loading { text-align: center; padding: 30px; color: #999; }
 </style>
@@ -73,7 +66,10 @@
 
 <div class="auth-bar" id="auth-bar">
   <span id="auth-status">Войдите для добавления/удаления данных</span>
-  <button class="btn-auth" id="btn-login">Войти через Google</button>
+  <div class="auth-bar-right">
+    <a class="btn-admin" href="/admin" id="btn-admin" style="display:none">⚙ Листы</a>
+    <button class="btn-auth" id="btn-login">Войти через Google</button>
+  </div>
 </div>
 
 <div class="tabs" id="tabs">
@@ -90,12 +86,12 @@
   <svg viewBox="0 0 24 24"><path d="M19 13H13v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
 </button>
 
-<!-- Form modal -->
 <div class="overlay" id="form-overlay">
   <div class="modal">
     <div class="modal-title" id="form-title">Добавить запись</div>
     <form id="row-form">
       <input type="hidden" id="edit-row">
+      <input type="hidden" id="f-data">
 
       <div class="field">
         <label>ШК (штрихкод)</label>
@@ -124,23 +120,8 @@
       </div>
 
       <div class="field">
-        <label>Товар</label>
-        <input type="text" id="f-tovar" placeholder="Название товара">
-      </div>
-
-      <div class="field">
         <label>Арт ВБ</label>
         <input type="text" id="f-art" placeholder="Артикул">
-      </div>
-
-      <div class="field">
-        <label>Размер</label>
-        <input type="text" id="f-razmer" placeholder="Размер">
-      </div>
-
-      <div class="field">
-        <label>Дата</label>
-        <input type="text" id="f-data">
       </div>
 
       <button type="submit" class="btn-submit">Сохранить</button>
@@ -149,7 +130,6 @@
   </div>
 </div>
 
-<!-- Camera modal -->
 <div class="cam-overlay" id="cam-overlay">
   <video id="cam-video" autoplay playsinline></video>
   <div class="cam-line"></div>
@@ -159,38 +139,82 @@
 
 <script>
 const CLIENT_ID = '{{ google_client_id }}';
-const SHEETS = {{ sheets | tojson }};
-let currentSheet = SHEETS[0];
+const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
+let currentSheet = {{ sheets | tojson }}[0];
 let accessToken = null;
 let scanning = false;
 let scanStream = null;
 
 // ---- AUTH ----
-const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
+function today() {
+  const d = new Date();
+  return `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`;
+}
 
-function loadGapi(cb) {
+function setAuthUI(loggedIn) {
+  const bar = document.getElementById('auth-bar');
+  const status = document.getElementById('auth-status');
+  const btn = document.getElementById('btn-login');
+  const adminBtn = document.getElementById('btn-admin');
+  if (loggedIn) {
+    bar.classList.add('ok');
+    status.textContent = 'Вы вошли ✓';
+    btn.textContent = 'Сменить аккаунт';
+    adminBtn.style.display = 'inline-block';
+  } else {
+    bar.classList.remove('ok');
+    status.textContent = 'Войдите для добавления/удаления данных';
+    btn.textContent = 'Войти через Google';
+    adminBtn.style.display = 'none';
+  }
+}
+
+function restoreToken() {
+  const t = sessionStorage.getItem('gtoken');
+  const exp = parseInt(sessionStorage.getItem('gtoken_exp') || '0');
+  if (t && Date.now() < exp) {
+    accessToken = t;
+    setAuthUI(true);
+    return true;
+  }
+  sessionStorage.removeItem('gtoken');
+  sessionStorage.removeItem('gtoken_exp');
+  return false;
+}
+
+function saveToken(resp) {
+  accessToken = resp.access_token;
+  const exp = Date.now() + ((resp.expires_in || 3600) - 60) * 1000;
+  sessionStorage.setItem('gtoken', accessToken);
+  sessionStorage.setItem('gtoken_exp', String(exp));
+  setAuthUI(true);
+}
+
+function loadGsi(cb) {
   const s = document.createElement('script');
   s.src = 'https://accounts.google.com/gsi/client';
   s.onload = cb;
   document.head.appendChild(s);
 }
 
-loadGapi(() => {
+const alreadyLogged = restoreToken();
+
+loadGsi(() => {
   window.tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: '{{ google_client_id }}',
+    client_id: CLIENT_ID,
     scope: SCOPES,
     callback: (resp) => {
       if (resp.error) { alert('Ошибка входа: ' + resp.error); return; }
-      accessToken = resp.access_token;
-      document.getElementById('auth-status').textContent = 'Вы вошли ✓';
-      document.getElementById('btn-login').textContent = 'Сменить аккаунт';
-      document.getElementById('auth-bar').style.background = '#d4edda';
+      saveToken(resp);
     },
   });
+  if (alreadyLogged) {
+    window.tokenClient.requestAccessToken({ prompt: '' });
+  }
 });
 
 document.getElementById('btn-login').addEventListener('click', () => {
-  window.tokenClient.requestAccessToken();
+  if (window.tokenClient) window.tokenClient.requestAccessToken({ prompt: 'select_account' });
 });
 
 // ---- TABS ----
@@ -217,8 +241,8 @@ async function loadRows() {
         <div class="card-meta">
           <span>Кол: <b>${r.kolichestvo || 0}</b></span>
           <span>Короб: <b>${r.nomerKoroba || '—'}</b></span>
-          <span>Дата: ${r.data || '—'}</span>
-          ${r.tovar ? `<span>${r.tovar}</span>` : ''}
+          ${r.artVB ? `<span>Арт: ${r.artVB}</span>` : ''}
+          <span style="color:#aaa">📅 ${r.data || '—'}</span>
         </div>
         <div class="card-actions">
           <button class="btn-edit" onclick="openEdit(${r.rowNumber}, ${JSON.stringify(r).replace(/"/g,'&quot;')})">✏️ Изменить</button>
@@ -232,20 +256,13 @@ async function loadRows() {
 }
 
 // ---- FORM ----
-function today() {
-  const d = new Date();
-  return `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`;
-}
-
 function openAdd() {
   document.getElementById('form-title').textContent = 'Добавить запись';
   document.getElementById('edit-row').value = '';
   document.getElementById('f-shk').value = '';
   document.getElementById('f-kol').value = '1';
   document.getElementById('f-korob').value = '1';
-  document.getElementById('f-tovar').value = '';
   document.getElementById('f-art').value = '';
-  document.getElementById('f-razmer').value = '';
   document.getElementById('f-data').value = today();
   document.getElementById('form-overlay').classList.add('open');
 }
@@ -256,9 +273,7 @@ function openEdit(rowNumber, row) {
   document.getElementById('f-shk').value = row.shk || '';
   document.getElementById('f-kol').value = row.kolichestvo || 1;
   document.getElementById('f-korob').value = row.nomerKoroba || 1;
-  document.getElementById('f-tovar').value = row.tovar || '';
   document.getElementById('f-art').value = row.artVB || '';
-  document.getElementById('f-razmer').value = row.razmer || '';
   document.getElementById('f-data').value = row.data || today();
   document.getElementById('form-overlay').classList.add('open');
 }
@@ -276,10 +291,8 @@ document.getElementById('row-form').addEventListener('submit', async e => {
     shk: document.getElementById('f-shk').value,
     kolichestvo: document.getElementById('f-kol').value,
     nomerKoroba: document.getElementById('f-korob').value,
-    tovar: document.getElementById('f-tovar').value,
     artVB: document.getElementById('f-art').value,
-    razmer: document.getElementById('f-razmer').value,
-    data: document.getElementById('f-data').value,
+    data: document.getElementById('f-data').value || today(),
   };
   const method = rowNumber ? 'PUT' : 'POST';
   const url = rowNumber
@@ -290,7 +303,7 @@ document.getElementById('row-form').addEventListener('submit', async e => {
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
     body: JSON.stringify(body),
   });
-  if (!resp.ok) { const e = await resp.json(); alert('Ошибка: ' + JSON.stringify(e)); return; }
+  if (!resp.ok) { const err = await resp.json(); alert('Ошибка: ' + JSON.stringify(err)); return; }
   document.getElementById('form-overlay').classList.remove('open');
   loadRows();
 });
@@ -302,7 +315,7 @@ async function deleteRow(rowNumber) {
     method: 'DELETE',
     headers: { 'Authorization': `Bearer ${accessToken}` },
   });
-  if (!resp.ok) { const e = await resp.json(); alert('Ошибка: ' + JSON.stringify(e)); return; }
+  if (!resp.ok) { const err = await resp.json(); alert('Ошибка: ' + JSON.stringify(err)); return; }
   loadRows();
 }
 

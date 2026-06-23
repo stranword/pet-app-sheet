@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Админ — Листы</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #222; }
+
+  .header { background: #1a73e8; color: #fff; padding: 16px; display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 10; }
+  .header a { color: rgba(255,255,255,0.8); text-decoration: none; font-size: 14px; }
+  .header h1 { font-size: 18px; font-weight: 700; flex: 1; }
+
+  .auth-bar { background: #fff3cd; padding: 10px 16px; font-size: 13px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .auth-bar.ok { background: #d4edda; }
+  .btn-auth { background: #1a73e8; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
+
+  .content { padding: 16px; padding-bottom: 40px; }
+
+  .section { margin-bottom: 24px; }
+  .section-title { font-size: 15px; font-weight: 700; color: #555; margin-bottom: 10px; text-transform: uppercase; letter-spacing: .5px; }
+
+  .sheet-item { background: #fff; border-radius: 10px; padding: 14px; margin-bottom: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.1); display: flex; align-items: center; gap: 10px; }
+  .sheet-name { flex: 1; font-size: 16px; font-weight: 600; }
+  .sheet-name-input { flex: 1; border: 1px solid #1a73e8; border-radius: 6px; padding: 6px 10px; font-size: 15px; }
+
+  .btn { border: none; border-radius: 6px; padding: 7px 14px; font-size: 13px; cursor: pointer; font-weight: 500; }
+  .btn-rename { background: #f0f0f0; color: #333; }
+  .btn-save { background: #34a853; color: #fff; }
+  .btn-del { background: #ea4335; color: #fff; }
+  .btn-restore { background: #34a853; color: #fff; }
+  .btn-cancel-edit { background: #f0f0f0; color: #555; }
+
+  .add-form { background: #fff; border-radius: 10px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.1); display: flex; gap: 10px; }
+  .add-form input { flex: 1; border: 1px solid #ddd; border-radius: 8px; padding: 10px 12px; font-size: 16px; }
+  .add-form input:focus { outline: none; border-color: #1a73e8; }
+  .btn-add { background: #1a73e8; color: #fff; border: none; border-radius: 8px; padding: 10px 18px; font-size: 15px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+
+  .empty { color: #999; font-size: 14px; padding: 12px 0; }
+  .msg { padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; display: none; }
+  .msg.ok { background: #d4edda; color: #155724; display: block; }
+  .msg.err { background: #f8d7da; color: #721c24; display: block; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <a href="/">← Назад</a>
+  <h1>Управление листами</h1>
+</div>
+
+<div class="auth-bar" id="auth-bar">
+  <span id="auth-status">Войдите для изменений</span>
+  <button class="btn-auth" id="btn-login">Войти через Google</button>
+</div>
+
+<div class="content">
+  <div class="msg" id="msg"></div>
+
+  <div class="section">
+    <div class="section-title">Активные листы</div>
+    <div id="active-list">
+      {% for name in config.active %}
+      <div class="sheet-item" id="item-{{ loop.index }}">
+        <span class="sheet-name" id="name-{{ loop.index }}">{{ name }}</span>
+        <input class="sheet-name-input" id="input-{{ loop.index }}" value="{{ name }}" style="display:none">
+        <button class="btn btn-rename" onclick="startRename({{ loop.index }}, '{{ name }}')">✏️</button>
+        <button class="btn btn-save" id="save-{{ loop.index }}" style="display:none" onclick="saveRename({{ loop.index }}, '{{ name }}')">✓</button>
+        <button class="btn btn-cancel-edit" id="cancelEdit-{{ loop.index }}" style="display:none" onclick="cancelRename({{ loop.index }}, '{{ name }}')">✕</button>
+        <button class="btn btn-del" onclick="deleteSheet('{{ name }}')">Удалить</button>
+      </div>
+      {% else %}
+      <div class="empty">Нет активных листов</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Добавить лист</div>
+    <div class="add-form">
+      <input type="text" id="new-name" placeholder="Название нового листа">
+      <button class="btn-add" onclick="addSheet()">+ Добавить</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Удалённые листы</div>
+    <div id="deleted-list">
+      {% for name in config.deleted %}
+      <div class="sheet-item">
+        <span class="sheet-name" style="color:#999">{{ name }}</span>
+        <button class="btn btn-restore" onclick="restoreSheet('{{ name }}')">↩ Восстановить</button>
+      </div>
+      {% else %}
+      <div class="empty">Нет удалённых листов</div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<script>
+const CLIENT_ID = '{{ google_client_id }}';
+const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
+let accessToken = null;
+
+function showMsg(text, type) {
+  const el = document.getElementById('msg');
+  el.textContent = text;
+  el.className = 'msg ' + type;
+  setTimeout(() => { el.className = 'msg'; }, 3000);
+}
+
+function setAuthUI(loggedIn) {
+  const bar = document.getElementById('auth-bar');
+  bar.classList.toggle('ok', loggedIn);
+  document.getElementById('auth-status').textContent = loggedIn ? 'Вы вошли ✓' : 'Войдите для изменений';
+  document.getElementById('btn-login').textContent = loggedIn ? 'Сменить аккаунт' : 'Войти через Google';
+}
+
+function restoreToken() {
+  const t = sessionStorage.getItem('gtoken');
+  const exp = parseInt(sessionStorage.getItem('gtoken_exp') || '0');
+  if (t && Date.now() < exp) { accessToken = t; setAuthUI(true); return true; }
+  return false;
+}
+
+const alreadyLogged = restoreToken();
+
+function loadGsi(cb) {
+  const s = document.createElement('script');
+  s.src = 'https://accounts.google.com/gsi/client';
+  s.onload = cb;
+  document.head.appendChild(s);
+}
+
+loadGsi(() => {
+  window.tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: SCOPES,
+    callback: (resp) => {
+      if (resp.error) { alert('Ошибка входа: ' + resp.error); return; }
+      accessToken = resp.access_token;
+      const exp = Date.now() + ((resp.expires_in || 3600) - 60) * 1000;
+      sessionStorage.setItem('gtoken', accessToken);
+      sessionStorage.setItem('gtoken_exp', String(exp));
+      setAuthUI(true);
+    },
+  });
+  if (alreadyLogged) window.tokenClient.requestAccessToken({ prompt: '' });
+});
+
+document.getElementById('btn-login').addEventListener('click', () => {
+  if (window.tokenClient) window.tokenClient.requestAccessToken({ prompt: 'select_account' });
+});
+
+function authHeader() {
+  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` };
+}
+
+async function addSheet() {
+  if (!accessToken) { alert('Сначала войдите'); return; }
+  const name = document.getElementById('new-name').value.trim();
+  if (!name) { showMsg('Введите название', 'err'); return; }
+  const resp = await fetch('/api/admin/sheets', {
+    method: 'POST',
+    headers: authHeader(),
+    body: JSON.stringify({ name }),
+  });
+  const data = await resp.json();
+  if (!resp.ok) { showMsg(data.error, 'err'); return; }
+  showMsg('Лист добавлен', 'ok');
+  setTimeout(() => location.reload(), 800);
+}
+
+async function deleteSheet(name) {
+  if (!accessToken) { alert('Сначала войдите'); return; }
+  if (!confirm(`Убрать лист "${name}" из приложения? Данные в Google Sheets сохранятся.`)) return;
+  const resp = await fetch('/api/admin/sheets/delete', {
+    method: 'POST',
+    headers: authHeader(),
+    body: JSON.stringify({ name }),
+  });
+  const data = await resp.json();
+  if (!resp.ok) { showMsg(data.error, 'err'); return; }
+  showMsg('Лист скрыт', 'ok');
+  setTimeout(() => location.reload(), 800);
+}
+
+async function restoreSheet(name) {
+  if (!accessToken) { alert('Сначала войдите'); return; }
+  const resp = await fetch('/api/admin/sheets/restore', {
+    method: 'POST',
+    headers: authHeader(),
+    body: JSON.stringify({ name }),
+  });
+  const data = await resp.json();
+  if (!resp.ok) { showMsg(data.error, 'err'); return; }
+  showMsg('Лист восстановлен', 'ok');
+  setTimeout(() => location.reload(), 800);
+}
+
+function startRename(idx, oldName) {
+  document.getElementById('name-' + idx).style.display = 'none';
+  document.getElementById('input-' + idx).style.display = 'block';
+  document.querySelector(`#item-${idx} .btn-rename`).style.display = 'none';
+  document.getElementById('save-' + idx).style.display = 'inline-block';
+  document.getElementById('cancelEdit-' + idx).style.display = 'inline-block';
+}
+
+function cancelRename(idx, oldName) {
+  document.getElementById('name-' + idx).style.display = 'inline';
+  document.getElementById('input-' + idx).style.display = 'none';
+  document.querySelector(`#item-${idx} .btn-rename`).style.display = 'inline-block';
+  document.getElementById('save-' + idx).style.display = 'none';
+  document.getElementById('cancelEdit-' + idx).style.display = 'none';
+  document.getElementById('input-' + idx).value = oldName;
+}
+
+async function saveRename(idx, oldName) {
+  if (!accessToken) { alert('Сначала войдите'); return; }
+  const newName = document.getElementById('input-' + idx).value.trim();
+  if (!newName || newName === oldName) { cancelRename(idx, oldName); return; }
+  const resp = await fetch('/api/admin/sheets/rename', {
+    method: 'PUT',
+    headers: authHeader(),
+    body: JSON.stringify({ old_name: oldName, new_name: newName }),
+  });
+  const data = await resp.json();
+  if (!resp.ok) { showMsg(data.error, 'err'); cancelRename(idx, oldName); return; }
+  showMsg('Переименовано', 'ok');
+  setTimeout(() => location.reload(), 800);
+}
+</script>
+</body>
+</html>
