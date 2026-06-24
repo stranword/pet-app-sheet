@@ -9,14 +9,22 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #222; }
 
-  .tabs { display: flex; background: #1a73e8; position: sticky; top: 0; z-index: 10; }
+  .tabs { display: flex; background: #1a73e8; position: sticky; top: 0; z-index: 10; align-items: stretch; }
   .tab { flex: 1; padding: 14px 4px; text-align: center; color: rgba(255,255,255,0.7); font-size: 13px; font-weight: 600; cursor: pointer; border-bottom: 3px solid transparent; transition: all .2s; }
   .tab.active { color: #fff; border-bottom-color: #fff; }
+  .admin-link { color: rgba(255,255,255,0.5); font-size: 18px; padding: 0 14px; display: flex; align-items: center; text-decoration: none; }
+  .admin-link:hover { color: #fff; }
+
+  .filter-bar { background: #fff; padding: 10px 12px; display: flex; gap: 8px; border-bottom: 1px solid #eee; position: sticky; top: 47px; z-index: 9; }
+  .filter-bar input { flex: 1; border: 1px solid #ddd; border-radius: 8px; padding: 8px 12px; font-size: 14px; min-width: 0; }
+  .filter-bar input:focus { outline: none; border-color: #1a73e8; }
+  .btn-clear { background: #f0f0f0; border: none; border-radius: 8px; padding: 8px 12px; font-size: 14px; cursor: pointer; color: #666; white-space: nowrap; }
 
   .list { padding: 12px; padding-bottom: 80px; }
   .card { background: #fff; border-radius: 10px; padding: 14px; margin-bottom: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
   .card-shk { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
-  .card-meta { font-size: 13px; color: #666; display: flex; gap: 12px; flex-wrap: wrap; }
+  .card-meta { font-size: 13px; color: #666; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .card-dt { font-size: 12px; color: #aaa; }
   .card-actions { margin-top: 10px; display: flex; gap: 8px; }
   .btn-edit { background: #1a73e8; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
   .btn-del { background: #ea4335; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
@@ -46,36 +54,30 @@
   .cam-overlay { display: none; position: fixed; inset: 0; background: #000; z-index: 50; flex-direction: column; }
   .cam-overlay.open { display: flex; }
   #cam-video { width: 100%; flex: 1; object-fit: cover; }
-  .cam-line { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 70vw; height: 70vw; border: 3px solid #fff; border-radius: 12px; }
-  .cam-close { position: absolute; top: 16px; right: 16px; background: rgba(0,0,0,.6); color: #fff; border: none; border-radius: 8px; padding: 10px 16px; font-size: 15px; cursor: pointer; z-index: 51; }
+  .cam-line { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 70vw; height: 70vw; max-width: 300px; max-height: 300px; border: 3px solid #fff; border-radius: 12px; pointer-events: none; }
+  .cam-close { position: absolute; top: 16px; right: 16px; background: rgba(0,0,0,.7); color: #fff; border: 2px solid rgba(255,255,255,.5); border-radius: 10px; padding: 12px 20px; font-size: 16px; cursor: pointer; z-index: 51; }
   canvas { display: none; }
 
   .btn-submit { width: 100%; background: #1a73e8; color: #fff; border: none; border-radius: 10px; padding: 14px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 6px; }
   .btn-cancel { width: 100%; background: #f0f0f0; color: #333; border: none; border-radius: 10px; padding: 14px; font-size: 16px; cursor: pointer; margin-top: 8px; }
 
-  .auth-bar { background: #fff3cd; padding: 10px 16px; font-size: 13px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
-  .auth-bar.ok { background: #d4edda; }
-  .auth-bar-right { display: flex; gap: 8px; align-items: center; }
-  .btn-auth { background: #1a73e8; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
-  .btn-admin { background: #555; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer; text-decoration: none; display: inline-block; }
-
   .loading { text-align: center; padding: 30px; color: #999; }
+  .filter-count { font-size: 12px; color: #999; padding: 4px 12px; }
 </style>
 </head>
 <body>
-
-<div class="auth-bar" id="auth-bar">
-  <span id="auth-status">Войдите для добавления/удаления данных</span>
-  <div class="auth-bar-right">
-    <a class="btn-admin" href="/admin" id="btn-admin" style="display:none">⚙ Листы</a>
-    <button class="btn-auth" id="btn-login">Войти через Google</button>
-  </div>
-</div>
 
 <div class="tabs" id="tabs">
   {% for sheet in sheets %}
   <div class="tab {% if loop.first %}active{% endif %}" data-sheet="{{ sheet }}">{{ sheet }}</div>
   {% endfor %}
+  <a class="admin-link" href="/admin" title="Управление листами">⚙</a>
+</div>
+
+<div class="filter-bar">
+  <input type="text" id="filter-shk" placeholder="🔍 Штрихкод" oninput="applyFilters()">
+  <input type="date" id="filter-date" oninput="applyFilters()" title="Показать с даты (включительно)">
+  <button class="btn-clear" id="btn-clear" onclick="clearFilters()" style="display:none">✕</button>
 </div>
 
 <div class="list" id="list">
@@ -138,84 +140,18 @@
 </div>
 
 <script>
-const CLIENT_ID = '{{ google_client_id }}';
-const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
-let currentSheet = {{ sheets | tojson }}[0];
-let accessToken = null;
+const SHEETS = {{ sheets | tojson }};
+let currentSheet = SHEETS[0];
+let allRows = [];
 let scanning = false;
 let scanStream = null;
 
-// ---- AUTH ----
-function today() {
+// ---- DATETIME ----
+function nowDatetime() {
   const d = new Date();
-  return `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`;
+  const p = n => String(n).padStart(2, '0');
+  return `${p(d.getDate())}.${p(d.getMonth()+1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
-
-function setAuthUI(loggedIn) {
-  const bar = document.getElementById('auth-bar');
-  const status = document.getElementById('auth-status');
-  const btn = document.getElementById('btn-login');
-  const adminBtn = document.getElementById('btn-admin');
-  if (loggedIn) {
-    bar.classList.add('ok');
-    status.textContent = 'Вы вошли ✓';
-    btn.textContent = 'Сменить аккаунт';
-    adminBtn.style.display = 'inline-block';
-  } else {
-    bar.classList.remove('ok');
-    status.textContent = 'Войдите для добавления/удаления данных';
-    btn.textContent = 'Войти через Google';
-    adminBtn.style.display = 'none';
-  }
-}
-
-function restoreToken() {
-  const t = sessionStorage.getItem('gtoken');
-  const exp = parseInt(sessionStorage.getItem('gtoken_exp') || '0');
-  if (t && Date.now() < exp) {
-    accessToken = t;
-    setAuthUI(true);
-    return true;
-  }
-  sessionStorage.removeItem('gtoken');
-  sessionStorage.removeItem('gtoken_exp');
-  return false;
-}
-
-function saveToken(resp) {
-  accessToken = resp.access_token;
-  const exp = Date.now() + ((resp.expires_in || 3600) - 60) * 1000;
-  sessionStorage.setItem('gtoken', accessToken);
-  sessionStorage.setItem('gtoken_exp', String(exp));
-  setAuthUI(true);
-}
-
-function loadGsi(cb) {
-  const s = document.createElement('script');
-  s.src = 'https://accounts.google.com/gsi/client';
-  s.onload = cb;
-  document.head.appendChild(s);
-}
-
-const alreadyLogged = restoreToken();
-
-loadGsi(() => {
-  window.tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: CLIENT_ID,
-    scope: SCOPES,
-    callback: (resp) => {
-      if (resp.error) { alert('Ошибка входа: ' + resp.error); return; }
-      saveToken(resp);
-    },
-  });
-  if (alreadyLogged) {
-    window.tokenClient.requestAccessToken({ prompt: '' });
-  }
-});
-
-document.getElementById('btn-login').addEventListener('click', () => {
-  if (window.tokenClient) window.tokenClient.requestAccessToken({ prompt: 'select_account' });
-});
 
 // ---- TABS ----
 document.getElementById('tabs').addEventListener('click', e => {
@@ -227,32 +163,83 @@ document.getElementById('tabs').addEventListener('click', e => {
   loadRows();
 });
 
-// ---- LOAD ROWS ----
+// ---- LOAD & RENDER ----
 async function loadRows() {
   const list = document.getElementById('list');
   list.innerHTML = '<div class="loading">Загрузка...</div>';
   try {
     const resp = await fetch(`/api/rows/${encodeURIComponent(currentSheet)}`);
-    const rows = await resp.json();
-    if (!rows.length) { list.innerHTML = '<div class="empty">Нет данных</div>'; return; }
-    list.innerHTML = rows.map(r => `
-      <div class="card">
-        <div class="card-shk">${r.shk || '—'}</div>
-        <div class="card-meta">
-          <span>Кол: <b>${r.kolichestvo || 0}</b></span>
-          <span>Короб: <b>${r.nomerKoroba || '—'}</b></span>
-          ${r.artVB ? `<span>Арт: ${r.artVB}</span>` : ''}
-          <span style="color:#aaa">📅 ${r.data || '—'}</span>
-        </div>
-        <div class="card-actions">
-          <button class="btn-edit" onclick="openEdit(${r.rowNumber}, ${JSON.stringify(r).replace(/"/g,'&quot;')})">✏️ Изменить</button>
-          <button class="btn-del" onclick="deleteRow(${r.rowNumber})">🗑 Удалить</button>
-        </div>
-      </div>
-    `).join('');
+    allRows = await resp.json();
+    applyFilters();
   } catch(e) {
     list.innerHTML = `<div class="empty">Ошибка: ${e.message}</div>`;
   }
+}
+
+function parseRecordDate(str) {
+  const dateStr = (str || '').split(' ')[0];
+  const parts = dateStr.split('.');
+  if (parts.length !== 3) return null;
+  return new Date(+parts[2], +parts[1] - 1, +parts[0]);
+}
+
+function applyFilters() {
+  const shkVal = document.getElementById('filter-shk').value.trim().toLowerCase();
+  const dateVal = document.getElementById('filter-date').value;
+  const hasFilter = shkVal || dateVal;
+  document.getElementById('btn-clear').style.display = hasFilter ? 'block' : 'none';
+
+  let filterDate = null;
+  if (dateVal) {
+    const [y, m, d] = dateVal.split('-');
+    filterDate = new Date(+y, +m - 1, +d);
+  }
+
+  const filtered = allRows.filter(r => {
+    if (shkVal && !(r.shk || '').toLowerCase().includes(shkVal)) return false;
+    if (filterDate) {
+      const rd = parseRecordDate(r.data);
+      if (!rd || rd < filterDate) return false;
+    }
+    return true;
+  });
+
+  renderRows(filtered, allRows.length);
+}
+
+function clearFilters() {
+  document.getElementById('filter-shk').value = '';
+  document.getElementById('filter-date').value = '';
+  applyFilters();
+}
+
+function renderRows(rows, total) {
+  const list = document.getElementById('list');
+  if (!rows.length) {
+    list.innerHTML = `<div class="empty">${total ? 'Нет совпадений' : 'Нет данных'}</div>`;
+    return;
+  }
+  const countHtml = rows.length < total
+    ? `<div class="filter-count">Показано ${rows.length} из ${total}</div>`
+    : '';
+  list.innerHTML = countHtml + rows.map(r => {
+    const dt = r.data || '';
+    const [datePart, timePart] = dt.includes(' ') ? dt.split(' ') : [dt, ''];
+    return `
+    <div class="card">
+      <div class="card-shk">${r.shk || '—'}</div>
+      <div class="card-meta">
+        <span>Кол: <b>${r.kolichestvo || 0}</b></span>
+        <span>Короб: <b>${r.nomerKoroba || '—'}</b></span>
+        ${r.artVB ? `<span>Арт: ${r.artVB}</span>` : ''}
+        <span class="card-dt">📅 ${datePart}${timePart ? ' ' + timePart : ''}</span>
+      </div>
+      <div class="card-actions">
+        <button class="btn-edit" onclick="openEdit(${r.rowNumber}, ${JSON.stringify(r).replace(/"/g,'&quot;')})">✏️</button>
+        <button class="btn-del" onclick="deleteRow(${r.rowNumber})">🗑</button>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 // ---- FORM ----
@@ -263,7 +250,7 @@ function openAdd() {
   document.getElementById('f-kol').value = '1';
   document.getElementById('f-korob').value = '1';
   document.getElementById('f-art').value = '';
-  document.getElementById('f-data').value = today();
+  document.getElementById('f-data').value = nowDatetime();
   document.getElementById('form-overlay').classList.add('open');
 }
 
@@ -274,7 +261,7 @@ function openEdit(rowNumber, row) {
   document.getElementById('f-kol').value = row.kolichestvo || 1;
   document.getElementById('f-korob').value = row.nomerKoroba || 1;
   document.getElementById('f-art').value = row.artVB || '';
-  document.getElementById('f-data').value = row.data || today();
+  document.getElementById('f-data').value = row.data || nowDatetime();
   document.getElementById('form-overlay').classList.add('open');
 }
 
@@ -282,17 +269,21 @@ document.getElementById('fab').addEventListener('click', openAdd);
 document.getElementById('btn-cancel').addEventListener('click', () => {
   document.getElementById('form-overlay').classList.remove('open');
 });
+document.getElementById('form-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('form-overlay')) {
+    document.getElementById('form-overlay').classList.remove('open');
+  }
+});
 
 document.getElementById('row-form').addEventListener('submit', async e => {
   e.preventDefault();
-  if (!accessToken) { alert('Сначала войдите через Google'); return; }
   const rowNumber = document.getElementById('edit-row').value;
   const body = {
     shk: document.getElementById('f-shk').value,
     kolichestvo: document.getElementById('f-kol').value,
     nomerKoroba: document.getElementById('f-korob').value,
     artVB: document.getElementById('f-art').value,
-    data: document.getElementById('f-data').value || today(),
+    data: document.getElementById('f-data').value || nowDatetime(),
   };
   const method = rowNumber ? 'PUT' : 'POST';
   const url = rowNumber
@@ -300,22 +291,20 @@ document.getElementById('row-form').addEventListener('submit', async e => {
     : `/api/rows/${encodeURIComponent(currentSheet)}`;
   const resp = await fetch(url, {
     method,
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!resp.ok) { const err = await resp.json(); alert('Ошибка: ' + JSON.stringify(err)); return; }
+  if (!resp.ok) { const err = await resp.json(); alert('Ошибка: ' + (err.error || JSON.stringify(err))); return; }
   document.getElementById('form-overlay').classList.remove('open');
   loadRows();
 });
 
 async function deleteRow(rowNumber) {
-  if (!accessToken) { alert('Сначала войдите через Google'); return; }
   if (!confirm('Удалить строку?')) return;
   const resp = await fetch(`/api/rows/${encodeURIComponent(currentSheet)}/${rowNumber}`, {
     method: 'DELETE',
-    headers: { 'Authorization': `Bearer ${accessToken}` },
   });
-  if (!resp.ok) { const err = await resp.json(); alert('Ошибка: ' + JSON.stringify(err)); return; }
+  if (!resp.ok) { const err = await resp.json(); alert('Ошибка: ' + (err.error || JSON.stringify(err))); return; }
   loadRows();
 }
 
@@ -327,6 +316,13 @@ function dec(id) { const el = document.getElementById(id); el.value = Math.max(0
 document.getElementById('btn-scan').addEventListener('click', openScanner);
 document.getElementById('cam-close').addEventListener('click', closeScanner);
 
+document.getElementById('cam-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('cam-overlay') ||
+      e.target === document.getElementById('cam-video')) {
+    closeScanner();
+  }
+});
+
 function openScanner() {
   const overlay = document.getElementById('cam-overlay');
   overlay.classList.add('open');
@@ -335,6 +331,7 @@ function openScanner() {
       scanStream = stream;
       const video = document.getElementById('cam-video');
       video.srcObject = stream;
+      video.play();
       scanning = true;
       requestAnimationFrame(scanFrame);
     })
@@ -346,7 +343,12 @@ function openScanner() {
 
 function closeScanner() {
   scanning = false;
-  if (scanStream) { scanStream.getTracks().forEach(t => t.stop()); scanStream = null; }
+  if (scanStream) {
+    scanStream.getTracks().forEach(t => t.stop());
+    scanStream = null;
+  }
+  const video = document.getElementById('cam-video');
+  video.srcObject = null;
   document.getElementById('cam-overlay').classList.remove('open');
 }
 

@@ -16,6 +16,47 @@ GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'sheets_config.json')
 DEFAULT_SHEETS = ['Ратчин', 'ЧСА', 'ЕОГ', 'ДАА']
 
+# ---- Service account (for anonymous row CRUD) ----
+try:
+    from google.oauth2 import service_account
+    from google.auth.transport.requests import Request as GoogleRequest
+    HAS_GOOGLE_AUTH = True
+except ImportError:
+    HAS_GOOGLE_AUTH = False
+
+_sa_creds = None
+
+def get_server_token():
+    global _sa_creds
+    if not HAS_GOOGLE_AUTH:
+        return None
+    sa_json = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON')
+    if not sa_json:
+        return None
+    try:
+        sa_info = json.loads(sa_json)
+        if _sa_creds is None:
+            _sa_creds = service_account.Credentials.from_service_account_info(
+                sa_info, scopes=['https://www.googleapis.com/auth/spreadsheets'])
+        if not _sa_creds.valid:
+            _sa_creds.refresh(GoogleRequest())
+        return _sa_creds.token
+    except Exception as e:
+        print(f'Service account error: {e}')
+        _sa_creds = None
+        return None
+
+def server_headers():
+    token = get_server_token()
+    if not token:
+        return None
+    return {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+
+def user_headers(req):
+    token = req.headers.get('Authorization', '').replace('Bearer ', '')
+    return {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+
+# ---- Config ----
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
@@ -23,16 +64,15 @@ def load_config():
             return json.load(f)
     return {'active': list(DEFAULT_SHEETS), 'deleted': []}
 
-
 def save_config(config):
     with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
         json.dump(config, f, ensure_ascii=False, indent=2)
 
+# ---- Helpers ----
 
 def sheets_url(sheet, range_='A:G'):
     name = requests.utils.quote(sheet)
     return f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}/values/{name}!{range_}?key={API_KEY}'
-
 
 def get_sheet_id(sheet_name):
     meta_url = f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}?key={API_KEY}'
@@ -42,25 +82,19 @@ def get_sheet_id(sheet_name):
             return s['properties']['sheetId']
     return None
 
-
-def auth_headers(req):
-    token = req.headers.get('Authorization', '').replace('Bearer ', '')
-    return {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
-
+# ---- Pages ----
 
 @app.route('/')
 def index():
     sheets = load_config()['active']
-    return render_template('index.html', sheets=sheets, google_client_id=GOOGLE_CLIENT_ID)
-
+    return render_template('index.html', sheets=sheets)
 
 @app.route('/admin')
 def admin():
     config = load_config()
     return render_template('admin.html', config=config, google_client_id=GOOGLE_CLIENT_ID)
 
-
-# ---- Rows API ----
+# ---- Rows API (uses service account — no user auth needed) ----
 
 @app.route('/api/rows/<sheet>')
 def get_rows(sheet):
@@ -91,6 +125,9 @@ def get_rows(sheet):
 def add_row(sheet):
     if sheet not in load_config()['active']:
         return jsonify({'error': 'Unknown sheet'}), 400
+    hdrs = server_headers()
+    if not hdrs:
+        return jsonify({'error': 'Не настроен GOOGLE_SERVICE_ACCOUNT_JSON'}), 503
     data = request.json
     values = [[
         data.get('shk', ''),
@@ -99,11 +136,11 @@ def add_row(sheet):
         '',
         data.get('kolichestvo', ''),
         data.get('nomerKoroba', ''),
-        data.get('data', datetime.today().strftime('%d.%m.%Y')),
+        data.get('data', datetime.today().strftime('%d.%m.%Y %H:%M')),
     ]]
     name = requests.utils.quote(sheet)
     url = f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}/values/{name}!A:G:append?valueInputOption=USER_ENTERED'
-    resp = requests.post(url, json={'values': values}, headers=auth_headers(request))
+    resp = requests.post(url, json={'values': values}, headers=hdrs)
     if not resp.ok:
         return jsonify({'error': resp.text}), resp.status_code
     return jsonify({'ok': True})
@@ -113,6 +150,9 @@ def add_row(sheet):
 def update_row(sheet, row_number):
     if sheet not in load_config()['active']:
         return jsonify({'error': 'Unknown sheet'}), 400
+    hdrs = server_headers()
+    if not hdrs:
+        return jsonify({'error': 'Не настроен GOOGLE_SERVICE_ACCOUNT_JSON'}), 503
     data = request.json
     values = [[
         data.get('shk', ''),
@@ -125,7 +165,7 @@ def update_row(sheet, row_number):
     ]]
     name = requests.utils.quote(sheet)
     url = f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}/values/{name}!A{row_number}:G{row_number}?valueInputOption=USER_ENTERED'
-    resp = requests.put(url, json={'values': values}, headers=auth_headers(request))
+    resp = requests.put(url, json={'values': values}, headers=hdrs)
     if not resp.ok:
         return jsonify({'error': resp.text}), resp.status_code
     return jsonify({'ok': True})
@@ -135,6 +175,9 @@ def update_row(sheet, row_number):
 def delete_row(sheet, row_number):
     if sheet not in load_config()['active']:
         return jsonify({'error': 'Unknown sheet'}), 400
+    hdrs = server_headers()
+    if not hdrs:
+        return jsonify({'error': 'Не настроен GOOGLE_SERVICE_ACCOUNT_JSON'}), 503
     sheet_id = get_sheet_id(sheet)
     if sheet_id is None:
         return jsonify({'error': 'Sheet not found'}), 404
@@ -145,13 +188,13 @@ def delete_row(sheet, row_number):
         'startIndex': row_number - 1,
         'endIndex': row_number,
     }}}]}
-    resp = requests.post(url, json=body, headers=auth_headers(request))
+    resp = requests.post(url, json=body, headers=hdrs)
     if not resp.ok:
         return jsonify({'error': resp.text}), resp.status_code
     return jsonify({'ok': True})
 
 
-# ---- Admin: Sheets management ----
+# ---- Admin: Sheet management (uses user OAuth token) ----
 
 @app.route('/api/admin/sheets', methods=['GET'])
 def admin_get_sheets():
@@ -171,7 +214,7 @@ def admin_add_sheet():
         return jsonify({'error': 'Лист удалён — используйте восстановление'}), 400
     url = f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}:batchUpdate'
     body = {'requests': [{'addSheet': {'properties': {'title': name}}}]}
-    resp = requests.post(url, json=body, headers=auth_headers(request))
+    resp = requests.post(url, json=body, headers=user_headers(request))
     if not resp.ok:
         return jsonify({'error': resp.text}), resp.status_code
     config['active'].append(name)
@@ -199,7 +242,7 @@ def admin_rename_sheet():
         'properties': {'sheetId': sheet_id, 'title': new_name},
         'fields': 'title'
     }}]}
-    resp = requests.post(url, json=body, headers=auth_headers(request))
+    resp = requests.post(url, json=body, headers=user_headers(request))
     if not resp.ok:
         return jsonify({'error': resp.text}), resp.status_code
     idx = config['active'].index(old_name)
