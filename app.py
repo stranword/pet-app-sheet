@@ -70,6 +70,12 @@ def save_config(config):
 
 # ---- Helpers ----
 
+def _google_error(resp):
+    try:
+        return resp.json()['error']['message']
+    except Exception:
+        return resp.text
+
 def sheets_url(sheet, range_='A:G'):
     name = requests.utils.quote(sheet)
     return f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}/values/{name}!{range_}?key={API_KEY}'
@@ -107,7 +113,8 @@ def get_rows(sheet):
         name = requests.utils.quote(sheet)
         url = f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}/values/{name}!A:G'
         resp = requests.get(url, headers=hdrs)
-        resp.raise_for_status()
+        if not resp.ok:
+            return jsonify({'error': _google_error(resp)}), resp.status_code
         values = resp.json().get('values', [])
         rows = []
         for i, row in enumerate(values):
@@ -147,7 +154,7 @@ def add_row(sheet):
     url = f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}/values/{name}!A:G:append?valueInputOption=USER_ENTERED'
     resp = requests.post(url, json={'values': values}, headers=hdrs)
     if not resp.ok:
-        return jsonify({'error': resp.text}), resp.status_code
+        return jsonify({'error': _google_error(resp)}), resp.status_code
     return jsonify({'ok': True})
 
 
@@ -172,7 +179,7 @@ def update_row(sheet, row_number):
     url = f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}/values/{name}!A{row_number}:G{row_number}?valueInputOption=USER_ENTERED'
     resp = requests.put(url, json={'values': values}, headers=hdrs)
     if not resp.ok:
-        return jsonify({'error': resp.text}), resp.status_code
+        return jsonify({'error': _google_error(resp)}), resp.status_code
     return jsonify({'ok': True})
 
 
@@ -195,7 +202,7 @@ def delete_row(sheet, row_number):
     }}}]}
     resp = requests.post(url, json=body, headers=hdrs)
     if not resp.ok:
-        return jsonify({'error': resp.text}), resp.status_code
+        return jsonify({'error': _google_error(resp)}), resp.status_code
     return jsonify({'ok': True})
 
 
@@ -221,7 +228,7 @@ def admin_add_sheet():
     body = {'requests': [{'addSheet': {'properties': {'title': name}}}]}
     resp = requests.post(url, json=body, headers=user_headers(request))
     if not resp.ok:
-        return jsonify({'error': resp.text}), resp.status_code
+        return jsonify({'error': _google_error(resp)}), resp.status_code
     config['active'].append(name)
     save_config(config)
     return jsonify({'ok': True, 'config': config})
@@ -249,7 +256,7 @@ def admin_rename_sheet():
     }}]}
     resp = requests.post(url, json=body, headers=user_headers(request))
     if not resp.ok:
-        return jsonify({'error': resp.text}), resp.status_code
+        return jsonify({'error': _google_error(resp)}), resp.status_code
     idx = config['active'].index(old_name)
     config['active'][idx] = new_name
     save_config(config)

@@ -65,6 +65,7 @@ def mock_post(ok=True, text='', status_code=None):
     m.ok = ok
     m.text = text
     m.status_code = status_code if status_code is not None else (200 if ok else 400)
+    m.json.return_value = {'error': {'message': text or 'API error', 'code': m.status_code}} if not ok else {}
     return m
 
 
