@@ -74,9 +74,9 @@ def sheets_url(sheet, range_='A:G'):
     name = requests.utils.quote(sheet)
     return f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}/values/{name}!{range_}?key={API_KEY}'
 
-def get_sheet_id(sheet_name):
-    meta_url = f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}?key={API_KEY}'
-    meta = requests.get(meta_url).json()
+def get_sheet_id(sheet_name, hdrs):
+    meta_url = f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}'
+    meta = requests.get(meta_url, headers=hdrs).json()
     for s in meta.get('sheets', []):
         if s['properties']['title'] == sheet_name:
             return s['properties']['sheetId']
@@ -100,8 +100,13 @@ def admin():
 def get_rows(sheet):
     if sheet not in load_config()['active']:
         return jsonify({'error': 'Unknown sheet'}), 400
+    hdrs = server_headers()
+    if not hdrs:
+        return jsonify({'error': 'Не настроен GOOGLE_SERVICE_ACCOUNT_JSON'}), 503
     try:
-        resp = requests.get(sheets_url(sheet))
+        name = requests.utils.quote(sheet)
+        url = f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}/values/{name}!A:G'
+        resp = requests.get(url, headers=hdrs)
         resp.raise_for_status()
         values = resp.json().get('values', [])
         rows = []
@@ -178,7 +183,7 @@ def delete_row(sheet, row_number):
     hdrs = server_headers()
     if not hdrs:
         return jsonify({'error': 'Не настроен GOOGLE_SERVICE_ACCOUNT_JSON'}), 503
-    sheet_id = get_sheet_id(sheet)
+    sheet_id = get_sheet_id(sheet, hdrs)
     if sheet_id is None:
         return jsonify({'error': 'Sheet not found'}), 404
     url = f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}:batchUpdate'
@@ -234,7 +239,7 @@ def admin_rename_sheet():
         return jsonify({'error': 'Лист не найден'}), 404
     if new_name in config['active']:
         return jsonify({'error': 'Имя уже занято'}), 400
-    sheet_id = get_sheet_id(old_name)
+    sheet_id = get_sheet_id(old_name, user_headers(request))
     if sheet_id is None:
         return jsonify({'error': 'Лист не найден в Google Sheets'}), 404
     url = f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}:batchUpdate'

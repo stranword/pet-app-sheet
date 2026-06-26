@@ -86,7 +86,7 @@ def test_admin_renders(client):
 
 # ---- GET /api/rows/<sheet> ----
 
-def test_get_rows_success(client):
+def test_get_rows_success(client, server_token):
     with patch('app.requests.get', return_value=mock_get(ROWS_RESPONSE)):
         resp = client.get('/api/rows/Ратчин')
     assert resp.status_code == 200
@@ -98,7 +98,7 @@ def test_get_rows_success(client):
     }
 
 
-def test_get_rows_pads_short_rows(client):
+def test_get_rows_pads_short_rows(client, server_token):
     short = {'values': [['SHK001']]}  # only 1 column
     with patch('app.requests.get', return_value=mock_get(short)):
         resp = client.get('/api/rows/Ратчин')
@@ -113,7 +113,13 @@ def test_get_rows_unknown_sheet(client):
     assert resp.status_code == 400
 
 
-def test_get_rows_empty_sheet(client):
+def test_get_rows_no_service_account(client):
+    with patch('app.get_server_token', return_value=None):
+        resp = client.get('/api/rows/Ратчин')
+    assert resp.status_code == 503
+
+
+def test_get_rows_empty_sheet(client, server_token):
     with patch('app.requests.get', return_value=mock_get({'values': []})):
         resp = client.get('/api/rows/Ратчин')
     assert resp.status_code == 200
