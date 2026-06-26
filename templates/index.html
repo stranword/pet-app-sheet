@@ -15,9 +15,12 @@
   .admin-link { color: rgba(255,255,255,0.5); font-size: 18px; padding: 0 14px; display: flex; align-items: center; text-decoration: none; }
   .admin-link:hover { color: #fff; }
 
-  .filter-bar { background: #fff; padding: 10px 12px; display: flex; gap: 8px; border-bottom: 1px solid #eee; position: sticky; top: 47px; z-index: 9; }
+  .filter-bar { background: #fff; padding: 10px 12px; display: flex; gap: 8px; border-bottom: 1px solid #eee; position: sticky; top: 47px; z-index: 9; align-items: center; }
   .filter-bar input { flex: 1; border: 1px solid #ddd; border-radius: 8px; padding: 8px 12px; font-size: 14px; min-width: 0; }
   .filter-bar input:focus { outline: none; border-color: #1a73e8; }
+  .date-wrap { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+  .date-wrap input { flex: none; width: 100%; }
+  .date-label { font-size: 11px; color: #999; padding: 0 4px 3px; }
   .btn-clear { background: #f0f0f0; border: none; border-radius: 8px; padding: 8px 12px; font-size: 14px; cursor: pointer; color: #666; white-space: nowrap; }
 
   .list { padding: 12px; padding-bottom: 80px; }
@@ -75,7 +78,10 @@
 
 <div class="filter-bar">
   <input type="text" id="filter-shk" placeholder="🔍 Штрихкод" oninput="applyFilters()">
-  <input type="date" id="filter-date" oninput="applyFilters()" title="Показать с даты (включительно)">
+  <div class="date-wrap">
+    <span class="date-label">Дата</span>
+    <input type="date" id="filter-date" oninput="applyFilters()">
+  </div>
   <button class="btn-clear" id="btn-clear" onclick="clearFilters()" style="display:none">✕</button>
 </div>
 
@@ -118,11 +124,6 @@
           <input type="number" id="f-korob" value="1" min="0">
           <button type="button" onclick="inc('f-korob')">+</button>
         </div>
-      </div>
-
-      <div class="field">
-        <label>Арт ВБ</label>
-        <input type="text" id="f-art" placeholder="Артикул">
       </div>
 
       <button type="submit" class="btn-submit">Сохранить</button>
@@ -250,7 +251,6 @@ function openAdd() {
   document.getElementById('f-shk').value = '';
   document.getElementById('f-kol').value = '1';
   document.getElementById('f-korob').value = '1';
-  document.getElementById('f-art').value = '';
   document.getElementById('f-data').value = nowDatetime();
   document.getElementById('form-overlay').classList.add('open');
 }
@@ -261,7 +261,6 @@ function openEdit(rowNumber, row) {
   document.getElementById('f-shk').value = row.shk || '';
   document.getElementById('f-kol').value = row.kolichestvo || 1;
   document.getElementById('f-korob').value = row.nomerKoroba || 1;
-  document.getElementById('f-art').value = row.artVB || '';
   document.getElementById('f-data').value = row.data || nowDatetime();
   document.getElementById('form-overlay').classList.add('open');
 }
@@ -283,7 +282,6 @@ document.getElementById('row-form').addEventListener('submit', async e => {
     shk: document.getElementById('f-shk').value,
     kolichestvo: document.getElementById('f-kol').value,
     nomerKoroba: document.getElementById('f-korob').value,
-    artVB: document.getElementById('f-art').value,
     data: document.getElementById('f-data').value || nowDatetime(),
   };
   const method = rowNumber ? 'PUT' : 'POST';
