@@ -22,6 +22,7 @@
   .date-wrap input { flex: none; width: 100%; }
   .date-label { font-size: 11px; color: #999; padding: 0 4px 3px; }
   .btn-clear { background: #f0f0f0; border: none; border-radius: 8px; padding: 8px 12px; font-size: 14px; cursor: pointer; color: #666; white-space: nowrap; }
+  .btn-export { background: #34a853; border: none; border-radius: 8px; padding: 8px 12px; font-size: 14px; cursor: pointer; color: #fff; white-space: nowrap; text-decoration: none; display: flex; align-items: center; }
 
   .list { padding: 12px; padding-bottom: 80px; }
   .card { background: #fff; border-radius: 10px; padding: 14px; margin-bottom: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
@@ -83,6 +84,7 @@
     <input type="date" id="filter-date" oninput="applyFilters()">
   </div>
   <button class="btn-clear" id="btn-clear" onclick="clearFilters()" style="display:none">✕</button>
+  <a class="btn-export" id="btn-export" href="#" title="Скачать Excel">📥</a>
 </div>
 
 <div class="list" id="list">
@@ -97,7 +99,7 @@
   <div class="modal">
     <div class="modal-title" id="form-title">Добавить запись</div>
     <form id="row-form">
-      <input type="hidden" id="edit-row">
+      <input type="hidden" id="edit-id">
       <input type="hidden" id="f-data">
 
       <div class="field">
@@ -157,8 +159,13 @@ document.getElementById('tabs').addEventListener('click', e => {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   tab.classList.add('active');
   currentSheet = tab.dataset.sheet;
+  updateExportLink();
   loadRows();
 });
+
+function updateExportLink() {
+  document.getElementById('btn-export').href = `/api/export/${encodeURIComponent(currentSheet)}`;
+}
 
 // ---- LOAD & RENDER ----
 async function loadRows() {
@@ -233,12 +240,11 @@ function renderRows(rows, total) {
       <div class="card-meta">
         <span>Кол: <b>${r.kolichestvo || 0}</b></span>
         <span>Короб: <b>${r.nomerKoroba || '—'}</b></span>
-        ${r.artVB ? `<span>Арт: ${r.artVB}</span>` : ''}
         <span class="card-dt">📅 ${datePart}${timePart ? ' ' + timePart : ''}</span>
       </div>
       <div class="card-actions">
-        <button class="btn-edit" onclick="openEdit(${r.rowNumber}, ${JSON.stringify(r).replace(/"/g,'&quot;')})">✏️</button>
-        <button class="btn-del" onclick="deleteRow(${r.rowNumber})">🗑</button>
+        <button class="btn-edit" onclick="openEdit(${r.id}, ${JSON.stringify(r).replace(/"/g,'&quot;')})">✏️</button>
+        <button class="btn-del" onclick="deleteRow(${r.id})">🗑</button>
       </div>
     </div>`;
   }).join('');
@@ -247,7 +253,7 @@ function renderRows(rows, total) {
 // ---- FORM ----
 function openAdd() {
   document.getElementById('form-title').textContent = 'Добавить запись';
-  document.getElementById('edit-row').value = '';
+  document.getElementById('edit-id').value = '';
   document.getElementById('f-shk').value = '';
   document.getElementById('f-kol').value = '1';
   document.getElementById('f-korob').value = '1';
@@ -255,9 +261,9 @@ function openAdd() {
   document.getElementById('form-overlay').classList.add('open');
 }
 
-function openEdit(rowNumber, row) {
+function openEdit(id, row) {
   document.getElementById('form-title').textContent = 'Изменить запись';
-  document.getElementById('edit-row').value = rowNumber;
+  document.getElementById('edit-id').value = id;
   document.getElementById('f-shk').value = row.shk || '';
   document.getElementById('f-kol').value = row.kolichestvo || 1;
   document.getElementById('f-korob').value = row.nomerKoroba || 1;
@@ -277,16 +283,16 @@ document.getElementById('form-overlay').addEventListener('click', e => {
 
 document.getElementById('row-form').addEventListener('submit', async e => {
   e.preventDefault();
-  const rowNumber = document.getElementById('edit-row').value;
+  const rowId = document.getElementById('edit-id').value;
   const body = {
     shk: document.getElementById('f-shk').value,
     kolichestvo: document.getElementById('f-kol').value,
     nomerKoroba: document.getElementById('f-korob').value,
     data: document.getElementById('f-data').value || nowDatetime(),
   };
-  const method = rowNumber ? 'PUT' : 'POST';
-  const url = rowNumber
-    ? `/api/rows/${encodeURIComponent(currentSheet)}/${rowNumber}`
+  const method = rowId ? 'PUT' : 'POST';
+  const url = rowId
+    ? `/api/rows/${encodeURIComponent(currentSheet)}/${rowId}`
     : `/api/rows/${encodeURIComponent(currentSheet)}`;
   const resp = await fetch(url, {
     method,
@@ -298,9 +304,9 @@ document.getElementById('row-form').addEventListener('submit', async e => {
   loadRows();
 });
 
-async function deleteRow(rowNumber) {
+async function deleteRow(id) {
   if (!confirm('Удалить строку?')) return;
-  const resp = await fetch(`/api/rows/${encodeURIComponent(currentSheet)}/${rowNumber}`, {
+  const resp = await fetch(`/api/rows/${encodeURIComponent(currentSheet)}/${id}`, {
     method: 'DELETE',
   });
   if (!resp.ok) { const err = await resp.json(); alert('Ошибка: ' + (err.error || JSON.stringify(err))); return; }
@@ -346,6 +352,7 @@ async function closeScanner() {
 }
 
 // ---- INIT ----
+updateExportLink();
 loadRows();
 </script>
 </body>

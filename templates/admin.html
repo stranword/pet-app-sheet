@@ -12,10 +12,6 @@
   .header a { color: rgba(255,255,255,0.8); text-decoration: none; font-size: 14px; }
   .header h1 { font-size: 18px; font-weight: 700; flex: 1; }
 
-  .auth-bar { background: #fff3cd; padding: 10px 16px; font-size: 13px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .auth-bar.ok { background: #d4edda; }
-  .btn-auth { background: #1a73e8; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
-
   .content { padding: 16px; padding-bottom: 40px; }
 
   .section { margin-bottom: 24px; }
@@ -48,11 +44,6 @@
 <div class="header">
   <a href="/">← Назад</a>
   <h1>Управление листами</h1>
-</div>
-
-<div class="auth-bar" id="auth-bar">
-  <span id="auth-status">Войдите для изменений</span>
-  <button class="btn-auth" id="btn-login">Войти через Google</button>
 </div>
 
 <div class="content">
@@ -100,10 +91,6 @@
 </div>
 
 <script>
-const CLIENT_ID = '{{ google_client_id }}';
-const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
-let accessToken = null;
-
 function showMsg(text, type) {
   const el = document.getElementById('msg');
   el.textContent = text;
@@ -111,60 +98,12 @@ function showMsg(text, type) {
   setTimeout(() => { el.className = 'msg'; }, 3000);
 }
 
-function setAuthUI(loggedIn) {
-  const bar = document.getElementById('auth-bar');
-  bar.classList.toggle('ok', loggedIn);
-  document.getElementById('auth-status').textContent = loggedIn ? 'Вы вошли ✓' : 'Войдите для изменений';
-  document.getElementById('btn-login').textContent = loggedIn ? 'Сменить аккаунт' : 'Войти через Google';
-}
-
-function restoreToken() {
-  const t = sessionStorage.getItem('gtoken');
-  const exp = parseInt(sessionStorage.getItem('gtoken_exp') || '0');
-  if (t && Date.now() < exp) { accessToken = t; setAuthUI(true); return true; }
-  return false;
-}
-
-const alreadyLogged = restoreToken();
-
-function loadGsi(cb) {
-  const s = document.createElement('script');
-  s.src = 'https://accounts.google.com/gsi/client';
-  s.onload = cb;
-  document.head.appendChild(s);
-}
-
-loadGsi(() => {
-  window.tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: CLIENT_ID,
-    scope: SCOPES,
-    callback: (resp) => {
-      if (resp.error) { alert('Ошибка входа: ' + resp.error); return; }
-      accessToken = resp.access_token;
-      const exp = Date.now() + ((resp.expires_in || 3600) - 60) * 1000;
-      sessionStorage.setItem('gtoken', accessToken);
-      sessionStorage.setItem('gtoken_exp', String(exp));
-      setAuthUI(true);
-    },
-  });
-  if (alreadyLogged) window.tokenClient.requestAccessToken({ prompt: '' });
-});
-
-document.getElementById('btn-login').addEventListener('click', () => {
-  if (window.tokenClient) window.tokenClient.requestAccessToken({ prompt: 'select_account' });
-});
-
-function authHeader() {
-  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` };
-}
-
 async function addSheet() {
-  if (!accessToken) { alert('Сначала войдите'); return; }
   const name = document.getElementById('new-name').value.trim();
   if (!name) { showMsg('Введите название', 'err'); return; }
   const resp = await fetch('/api/admin/sheets', {
     method: 'POST',
-    headers: authHeader(),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
   });
   const data = await resp.json();
@@ -174,11 +113,10 @@ async function addSheet() {
 }
 
 async function deleteSheet(name) {
-  if (!accessToken) { alert('Сначала войдите'); return; }
-  if (!confirm(`Убрать лист "${name}" из приложения? Данные в Google Sheets сохранятся.`)) return;
+  if (!confirm(`Убрать лист "${name}" из приложения? Данные строк сохранятся.`)) return;
   const resp = await fetch('/api/admin/sheets/delete', {
     method: 'POST',
-    headers: authHeader(),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
   });
   const data = await resp.json();
@@ -188,10 +126,9 @@ async function deleteSheet(name) {
 }
 
 async function restoreSheet(name) {
-  if (!accessToken) { alert('Сначала войдите'); return; }
   const resp = await fetch('/api/admin/sheets/restore', {
     method: 'POST',
-    headers: authHeader(),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
   });
   const data = await resp.json();
@@ -218,12 +155,11 @@ function cancelRename(idx, oldName) {
 }
 
 async function saveRename(idx, oldName) {
-  if (!accessToken) { alert('Сначала войдите'); return; }
   const newName = document.getElementById('input-' + idx).value.trim();
   if (!newName || newName === oldName) { cancelRename(idx, oldName); return; }
   const resp = await fetch('/api/admin/sheets/rename', {
     method: 'PUT',
-    headers: authHeader(),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ old_name: oldName, new_name: newName }),
   });
   const data = await resp.json();
