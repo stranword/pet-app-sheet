@@ -11,12 +11,14 @@ load_dotenv()
 
 app = Flask(__name__)
 
-DATABASE_URL = os.getenv('DATABASE_URL')
 DEFAULT_SHEETS = ['Ратчин', 'ЧСА', 'ЕОГ', 'ДАА']
 
 
 def get_db():
-    return psycopg2.connect(DATABASE_URL)
+    url = os.environ.get('DATABASE_URL')
+    if not url:
+        raise RuntimeError('DATABASE_URL is not set')
+    return psycopg2.connect(url)
 
 
 def db_execute(sql, params=(), fetch=None):
