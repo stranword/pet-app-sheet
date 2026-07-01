@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>СборкаV3</title>
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#1a73e8">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="СборкаV3">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -423,6 +430,11 @@ async function closeScanner() {
     html5QrCode = null;
   }
   document.getElementById('cam-overlay').classList.remove('open');
+}
+
+// ---- SERVICE WORKER ----
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/static/sw.js').catch(() => {});
 }
 
 // ---- INIT ----

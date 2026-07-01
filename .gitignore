@@ -8,4 +8,6 @@ __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
+mobile/node_modules/
+mobile/.expo/
 
