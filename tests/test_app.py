@@ -28,6 +28,13 @@ def client():
         yield c
 
 
+@pytest.fixture
+def admin_client(client):
+    with client.session_transaction() as sess:
+        sess['admin'] = True
+    return client
+
+
 # ---- Page routes ----
 
 def test_index_renders(client):
@@ -37,11 +44,41 @@ def test_index_renders(client):
     assert 'ЧСА'.encode() in resp.data
 
 
-def test_admin_renders(client):
+def test_admin_redirects_unauthenticated(client):
     resp = client.get('/admin')
+    assert resp.status_code == 302
+    assert '/admin/login' in resp.headers['Location']
+
+
+def test_admin_renders(admin_client):
+    resp = admin_client.get('/admin')
     assert resp.status_code == 200
     assert 'Ратчин'.encode() in resp.data
     assert 'ДАА'.encode() in resp.data
+
+
+def test_admin_login_page(client):
+    resp = client.get('/admin/login')
+    assert resp.status_code == 200
+    assert 'password'.encode() in resp.data
+
+
+def test_admin_login_wrong_password(client):
+    with patch.dict(os.environ, {'ADMIN_PASSWORD': 'secret'}):
+        resp = client.post('/admin/login', data={'password': 'wrong'})
+    assert resp.status_code == 200
+    assert 'Неверный пароль'.encode() in resp.data
+
+
+def test_admin_login_correct_password(client):
+    with patch.dict(os.environ, {'ADMIN_PASSWORD': 'secret'}):
+        resp = client.post('/admin/login', data={'password': 'secret'})
+    assert resp.status_code == 302
+
+
+def test_admin_logout(admin_client):
+    resp = admin_client.post('/admin/logout')
+    assert resp.status_code == 302
 
 
 # ---- GET /api/rows/<sheet> ----
@@ -132,8 +169,14 @@ def test_export_unknown_sheet(client):
 
 # ---- GET /api/admin/sheets ----
 
-def test_admin_get_sheets(client):
+def test_admin_get_sheets_unauthenticated(client):
     resp = client.get('/api/admin/sheets')
+    assert resp.status_code == 302
+    assert '/admin/login' in resp.headers['Location']
+
+
+def test_admin_get_sheets(admin_client):
+    resp = admin_client.get('/api/admin/sheets')
     assert resp.status_code == 200
     data = resp.get_json()
     assert data['active'] == ['Ратчин', 'ЧСА']
@@ -142,86 +185,86 @@ def test_admin_get_sheets(client):
 
 # ---- POST /api/admin/sheets ----
 
-def test_admin_add_sheet(client):
+def test_admin_add_sheet(admin_client):
     with patch('app.db_execute', return_value=None):
-        resp = client.post('/api/admin/sheets', json={'name': 'НовыйЛист'})
+        resp = admin_client.post('/api/admin/sheets', json={'name': 'НовыйЛист'})
     assert resp.status_code == 200
     config = resp.get_json()['config']
     assert 'НовыйЛист' in config['active']
 
 
-def test_admin_add_sheet_duplicate(client):
-    resp = client.post('/api/admin/sheets', json={'name': 'Ратчин'})
+def test_admin_add_sheet_duplicate(admin_client):
+    resp = admin_client.post('/api/admin/sheets', json={'name': 'Ратчин'})
     assert resp.status_code == 400
 
 
-def test_admin_add_sheet_empty_name(client):
-    resp = client.post('/api/admin/sheets', json={'name': '  '})
+def test_admin_add_sheet_empty_name(admin_client):
+    resp = admin_client.post('/api/admin/sheets', json={'name': '  '})
     assert resp.status_code == 400
 
 
-def test_admin_add_deleted_sheet_rejected(client):
-    resp = client.post('/api/admin/sheets', json={'name': 'ДАА'})
+def test_admin_add_deleted_sheet_rejected(admin_client):
+    resp = admin_client.post('/api/admin/sheets', json={'name': 'ДАА'})
     assert resp.status_code == 400
 
 
 # ---- POST /api/admin/sheets/delete ----
 
-def test_admin_delete_sheet(client):
+def test_admin_delete_sheet(admin_client):
     with patch('app.db_execute', return_value=None):
-        resp = client.post('/api/admin/sheets/delete', json={'name': 'Ратчин'})
+        resp = admin_client.post('/api/admin/sheets/delete', json={'name': 'Ратчин'})
     assert resp.status_code == 200
     config = resp.get_json()['config']
     assert 'Ратчин' not in config['active']
     assert 'Ратчин' in config['deleted']
 
 
-def test_admin_delete_nonexistent_sheet(client):
-    resp = client.post('/api/admin/sheets/delete', json={'name': 'Нет'})
+def test_admin_delete_nonexistent_sheet(admin_client):
+    resp = admin_client.post('/api/admin/sheets/delete', json={'name': 'Нет'})
     assert resp.status_code == 404
 
 
 # ---- POST /api/admin/sheets/restore ----
 
-def test_admin_restore_sheet(client):
+def test_admin_restore_sheet(admin_client):
     with patch('app.db_execute', return_value=None):
-        resp = client.post('/api/admin/sheets/restore', json={'name': 'ДАА'})
+        resp = admin_client.post('/api/admin/sheets/restore', json={'name': 'ДАА'})
     assert resp.status_code == 200
     config = resp.get_json()['config']
     assert 'ДАА' in config['active']
     assert 'ДАА' not in config['deleted']
 
 
-def test_admin_restore_not_deleted(client):
-    resp = client.post('/api/admin/sheets/restore', json={'name': 'Ратчин'})
+def test_admin_restore_not_deleted(admin_client):
+    resp = admin_client.post('/api/admin/sheets/restore', json={'name': 'Ратчин'})
     assert resp.status_code == 404
 
 
 # ---- PUT /api/admin/sheets/rename ----
 
-def test_admin_rename_sheet(client):
+def test_admin_rename_sheet(admin_client):
     with patch('app.db_transaction', return_value=None):
-        resp = client.put('/api/admin/sheets/rename',
-                          json={'old_name': 'Ратчин', 'new_name': 'РатчинV2'})
+        resp = admin_client.put('/api/admin/sheets/rename',
+                                json={'old_name': 'Ратчин', 'new_name': 'РатчинV2'})
     assert resp.status_code == 200
     config = resp.get_json()['config']
     assert 'РатчинV2' in config['active']
     assert 'Ратчин' not in config['active']
 
 
-def test_admin_rename_sheet_not_found(client):
-    resp = client.put('/api/admin/sheets/rename',
-                      json={'old_name': 'Нет', 'new_name': 'Новое'})
+def test_admin_rename_sheet_not_found(admin_client):
+    resp = admin_client.put('/api/admin/sheets/rename',
+                            json={'old_name': 'Нет', 'new_name': 'Новое'})
     assert resp.status_code == 404
 
 
-def test_admin_rename_to_existing_name(client):
-    resp = client.put('/api/admin/sheets/rename',
-                      json={'old_name': 'Ратчин', 'new_name': 'ЧСА'})
+def test_admin_rename_to_existing_name(admin_client):
+    resp = admin_client.put('/api/admin/sheets/rename',
+                            json={'old_name': 'Ратчин', 'new_name': 'ЧСА'})
     assert resp.status_code == 400
 
 
-def test_admin_rename_empty_names(client):
-    resp = client.put('/api/admin/sheets/rename',
-                      json={'old_name': '', 'new_name': ''})
+def test_admin_rename_empty_names(admin_client):
+    resp = admin_client.put('/api/admin/sheets/rename',
+                            json={'old_name': '', 'new_name': ''})
     assert resp.status_code == 400

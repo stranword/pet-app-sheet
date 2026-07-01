@@ -1,6 +1,7 @@
 import os
 import io
-from flask import Flask, render_template, request, jsonify, send_file
+from functools import wraps
+from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for
 from dotenv import load_dotenv
 from datetime import datetime
 import psycopg2
@@ -10,6 +11,7 @@ from openpyxl import Workbook
 load_dotenv()
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-change-in-prod')
 
 DEFAULT_SHEETS = ['Ратчин', 'ЧСА', 'ЕОГ', 'ДАА']
 
@@ -87,6 +89,19 @@ def load_config():
     return {'active': active, 'deleted': deleted}
 
 
+# ---- Auth ----
+
+def require_admin(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get('admin'):
+            if request.is_json:
+                return jsonify({'error': 'Требуется авторизация'}), 401
+            return redirect(url_for('admin_login'))
+        return f(*args, **kwargs)
+    return decorated
+
+
 # ---- Pages ----
 
 @app.route('/')
@@ -95,7 +110,27 @@ def index():
     return render_template('index.html', sheets=sheets)
 
 
+@app.route('/admin/login', methods=['GET', 'POST'])
+def admin_login():
+    error = None
+    if request.method == 'POST':
+        password = request.form.get('password', '')
+        admin_password = os.environ.get('ADMIN_PASSWORD', '')
+        if admin_password and password == admin_password:
+            session['admin'] = True
+            return redirect(url_for('admin'))
+        error = 'Неверный пароль'
+    return render_template('login.html', error=error)
+
+
+@app.route('/admin/logout', methods=['POST'])
+def admin_logout():
+    session.pop('admin', None)
+    return redirect(url_for('admin_login'))
+
+
 @app.route('/admin')
+@require_admin
 def admin():
     config = load_config()
     return render_template('admin.html', config=config)
@@ -170,7 +205,7 @@ def export_sheet(sheet):
     )
     wb = Workbook()
     ws = wb.active
-    ws.title = sheet[:31]  # Excel tab name limit
+    ws.title = sheet[:31]
     ws.append(['ШК', 'Количество', 'Номер короба', 'Дата'])
     for r in rows:
         ws.append([r['shk'], r['kolichestvo'], r['nomer_koroba'], r['data']])
@@ -185,14 +220,16 @@ def export_sheet(sheet):
     )
 
 
-# ---- Admin: Sheet management ----
+# ---- Admin: Sheet management (requires admin session) ----
 
 @app.route('/api/admin/sheets', methods=['GET'])
+@require_admin
 def admin_get_sheets():
     return jsonify(load_config())
 
 
 @app.route('/api/admin/sheets', methods=['POST'])
+@require_admin
 def admin_add_sheet():
     data = request.json
     name = data.get('name', '').strip()
@@ -209,6 +246,7 @@ def admin_add_sheet():
 
 
 @app.route('/api/admin/sheets/rename', methods=['PUT'])
+@require_admin
 def admin_rename_sheet():
     data = request.json
     old_name = data.get('old_name', '').strip()
@@ -230,6 +268,7 @@ def admin_rename_sheet():
 
 
 @app.route('/api/admin/sheets/delete', methods=['POST'])
+@require_admin
 def admin_delete_sheet():
     name = request.json.get('name', '').strip()
     config = load_config()
@@ -242,6 +281,7 @@ def admin_delete_sheet():
 
 
 @app.route('/api/admin/sheets/restore', methods=['POST'])
+@require_admin
 def admin_restore_sheet():
     name = request.json.get('name', '').strip()
     config = load_config()
