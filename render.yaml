@@ -5,9 +5,9 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
     envVars:
-      - key: SPREADSHEET_ID
+      - key: DATABASE_URL
         sync: false
-      - key: SHEETS_API_KEY
+      - key: ADMIN_PASSWORD
         sync: false
-      - key: GOOGLE_CLIENT_ID
+      - key: SECRET_KEY
         sync: false

@@ -1,92 +1,106 @@
 import os
-import json
-import requests
-from flask import Flask, render_template, request, jsonify
+import io
+from functools import wraps
+from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for
 from dotenv import load_dotenv
 from datetime import datetime
+import psycopg2
+import psycopg2.extras
+from openpyxl import Workbook
 
 load_dotenv()
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-change-in-prod')
 
-SPREADSHEET_ID = os.getenv('SPREADSHEET_ID')
-API_KEY = os.getenv('SHEETS_API_KEY')
-GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
-
-CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'sheets_config.json')
 DEFAULT_SHEETS = ['Ратчин', 'ЧСА', 'ЕОГ', 'ДАА']
 
-# ---- Service account (for anonymous row CRUD) ----
-try:
-    from google.oauth2 import service_account
-    from google.auth.transport.requests import Request as GoogleRequest
-    HAS_GOOGLE_AUTH = True
-except ImportError:
-    HAS_GOOGLE_AUTH = False
 
-_sa_creds = None
+def get_db():
+    url = os.environ.get('DATABASE_URL')
+    if not url:
+        raise RuntimeError('DATABASE_URL is not set')
+    return psycopg2.connect(url)
 
-def get_server_token():
-    global _sa_creds
-    if not HAS_GOOGLE_AUTH:
-        return None
-    sa_json = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON')
-    if not sa_json:
-        return None
+
+def db_execute(sql, params=(), fetch=None):
+    conn = get_db()
     try:
-        sa_info = json.loads(sa_json)
-        if _sa_creds is None:
-            _sa_creds = service_account.Credentials.from_service_account_info(
-                sa_info, scopes=['https://www.googleapis.com/auth/spreadsheets'])
-        if not _sa_creds.valid:
-            _sa_creds.refresh(GoogleRequest())
-        return _sa_creds.token
-    except Exception as e:
-        print(f'Service account error: {e}')
-        _sa_creds = None
-        return None
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql, params)
+            if fetch == 'all':
+                result = [dict(r) for r in cur.fetchall()]
+            elif fetch == 'one':
+                row = cur.fetchone()
+                result = dict(row) if row else None
+            else:
+                result = None
+        conn.commit()
+        return result
+    finally:
+        conn.close()
 
-def server_headers():
-    token = get_server_token()
-    if not token:
-        return None
-    return {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
 
-def user_headers(req):
-    token = req.headers.get('Authorization', '').replace('Bearer ', '')
-    return {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+def db_transaction(queries):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            for sql, params in queries:
+                cur.execute(sql, params)
+        conn.commit()
+    finally:
+        conn.close()
 
-# ---- Config ----
+
+def init_db():
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('''
+                CREATE TABLE IF NOT EXISTS sheets (
+                    name TEXT PRIMARY KEY,
+                    status TEXT NOT NULL DEFAULT 'active'
+                )
+            ''')
+            cur.execute('''
+                CREATE TABLE IF NOT EXISTS rows (
+                    id SERIAL PRIMARY KEY,
+                    sheet_name TEXT NOT NULL,
+                    shk TEXT,
+                    kolichestvo TEXT,
+                    nomer_koroba TEXT,
+                    data TEXT
+                )
+            ''')
+            for name in DEFAULT_SHEETS:
+                cur.execute(
+                    'INSERT INTO sheets (name, status) VALUES (%s, %s) ON CONFLICT DO NOTHING',
+                    (name, 'active')
+                )
+        conn.commit()
+    finally:
+        conn.close()
+
 
 def load_config():
-    if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return {'active': list(DEFAULT_SHEETS), 'deleted': []}
+    rows = db_execute('SELECT name, status FROM sheets ORDER BY name', fetch='all')
+    active = [r['name'] for r in rows if r['status'] == 'active']
+    deleted = [r['name'] for r in rows if r['status'] == 'deleted']
+    return {'active': active, 'deleted': deleted}
 
-def save_config(config):
-    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-        json.dump(config, f, ensure_ascii=False, indent=2)
 
-# ---- Helpers ----
+# ---- Auth ----
 
-def _google_error(resp):
-    try:
-        return resp.json()['error']['message']
-    except Exception:
-        return resp.text
+def require_admin(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get('admin'):
+            if request.is_json:
+                return jsonify({'error': 'Требуется авторизация'}), 401
+            return redirect(url_for('admin_login'))
+        return f(*args, **kwargs)
+    return decorated
 
-def sheets_url(sheet, range_='A:G'):
-    name = requests.utils.quote(sheet)
-    return f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}/values/{name}!{range_}?key={API_KEY}'
-
-def get_sheet_id(sheet_name, hdrs):
-    meta_url = f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}'
-    meta = requests.get(meta_url, headers=hdrs).json()
-    for s in meta.get('sheets', []):
-        if s['properties']['title'] == sheet_name:
-            return s['properties']['sheetId']
-    return None
 
 # ---- Pages ----
 
@@ -95,125 +109,127 @@ def index():
     sheets = load_config()['active']
     return render_template('index.html', sheets=sheets)
 
+
+@app.route('/admin/login', methods=['GET', 'POST'])
+def admin_login():
+    error = None
+    if request.method == 'POST':
+        password = request.form.get('password', '')
+        admin_password = os.environ.get('ADMIN_PASSWORD', '')
+        if admin_password and password == admin_password:
+            session['admin'] = True
+            return redirect(url_for('admin'))
+        error = 'Неверный пароль'
+    return render_template('login.html', error=error)
+
+
+@app.route('/admin/logout', methods=['POST'])
+def admin_logout():
+    session.pop('admin', None)
+    return redirect(url_for('admin_login'))
+
+
 @app.route('/admin')
+@require_admin
 def admin():
     config = load_config()
-    return render_template('admin.html', config=config, google_client_id=GOOGLE_CLIENT_ID)
+    return render_template('admin.html', config=config)
 
-# ---- Rows API (uses service account — no user auth needed) ----
+
+# ---- Rows API ----
 
 @app.route('/api/rows/<sheet>')
 def get_rows(sheet):
     if sheet not in load_config()['active']:
         return jsonify({'error': 'Unknown sheet'}), 400
-    hdrs = server_headers()
-    if not hdrs:
-        return jsonify({'error': 'Не настроен GOOGLE_SERVICE_ACCOUNT_JSON'}), 503
-    try:
-        name = requests.utils.quote(sheet)
-        url = f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}/values/{name}!A:G'
-        resp = requests.get(url, headers=hdrs)
-        if not resp.ok:
-            return jsonify({'error': _google_error(resp)}), resp.status_code
-        values = resp.json().get('values', [])
-        rows = []
-        for i, row in enumerate(values):
-            while len(row) < 7:
-                row.append('')
-            rows.append({
-                'rowNumber': i + 1,
-                'shk': row[0],
-                'artVB': row[2],
-                'kolichestvo': row[4],
-                'nomerKoroba': row[5],
-                'data': row[6],
-            })
-        return jsonify(rows)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    rows = db_execute(
+        'SELECT id, shk, kolichestvo, nomer_koroba, data FROM rows WHERE sheet_name=%s ORDER BY id',
+        (sheet,), fetch='all'
+    )
+    result = [{
+        'id': r['id'],
+        'shk': r['shk'] or '',
+        'kolichestvo': r['kolichestvo'] or '',
+        'nomerKoroba': r['nomer_koroba'] or '',
+        'data': r['data'] or '',
+    } for r in rows]
+    return jsonify(result)
 
 
 @app.route('/api/rows/<sheet>', methods=['POST'])
 def add_row(sheet):
     if sheet not in load_config()['active']:
         return jsonify({'error': 'Unknown sheet'}), 400
-    hdrs = server_headers()
-    if not hdrs:
-        return jsonify({'error': 'Не настроен GOOGLE_SERVICE_ACCOUNT_JSON'}), 503
     data = request.json
-    values = [[
-        data.get('shk', ''),
-        '',
-        data.get('artVB', ''),
-        '',
-        data.get('kolichestvo', ''),
-        data.get('nomerKoroba', ''),
-        data.get('data', datetime.today().strftime('%d.%m.%Y %H:%M')),
-    ]]
-    name = requests.utils.quote(sheet)
-    url = f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}/values/{name}!A:G:append?valueInputOption=USER_ENTERED'
-    resp = requests.post(url, json={'values': values}, headers=hdrs)
-    if not resp.ok:
-        return jsonify({'error': _google_error(resp)}), resp.status_code
+    db_execute(
+        'INSERT INTO rows (sheet_name, shk, kolichestvo, nomer_koroba, data) VALUES (%s, %s, %s, %s, %s)',
+        (sheet, data.get('shk', ''), str(data.get('kolichestvo', '')),
+         str(data.get('nomerKoroba', '')),
+         data.get('data', datetime.today().strftime('%d.%m.%Y %H:%M')))
+    )
     return jsonify({'ok': True})
 
 
-@app.route('/api/rows/<sheet>/<int:row_number>', methods=['PUT'])
-def update_row(sheet, row_number):
+@app.route('/api/rows/<sheet>/<int:row_id>', methods=['PUT'])
+def update_row(sheet, row_id):
     if sheet not in load_config()['active']:
         return jsonify({'error': 'Unknown sheet'}), 400
-    hdrs = server_headers()
-    if not hdrs:
-        return jsonify({'error': 'Не настроен GOOGLE_SERVICE_ACCOUNT_JSON'}), 503
     data = request.json
-    values = [[
-        data.get('shk', ''),
-        '',
-        data.get('artVB', ''),
-        '',
-        data.get('kolichestvo', ''),
-        data.get('nomerKoroba', ''),
-        data.get('data', ''),
-    ]]
-    name = requests.utils.quote(sheet)
-    url = f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}/values/{name}!A{row_number}:G{row_number}?valueInputOption=USER_ENTERED'
-    resp = requests.put(url, json={'values': values}, headers=hdrs)
-    if not resp.ok:
-        return jsonify({'error': _google_error(resp)}), resp.status_code
+    db_execute(
+        'UPDATE rows SET shk=%s, kolichestvo=%s, nomer_koroba=%s, data=%s WHERE id=%s AND sheet_name=%s',
+        (data.get('shk', ''), str(data.get('kolichestvo', '')),
+         str(data.get('nomerKoroba', '')),
+         data.get('data', datetime.today().strftime('%d.%m.%Y %H:%M')),
+         row_id, sheet)
+    )
     return jsonify({'ok': True})
 
 
-@app.route('/api/rows/<sheet>/<int:row_number>', methods=['DELETE'])
-def delete_row(sheet, row_number):
+@app.route('/api/rows/<sheet>/<int:row_id>', methods=['DELETE'])
+def delete_row(sheet, row_id):
     if sheet not in load_config()['active']:
         return jsonify({'error': 'Unknown sheet'}), 400
-    hdrs = server_headers()
-    if not hdrs:
-        return jsonify({'error': 'Не настроен GOOGLE_SERVICE_ACCOUNT_JSON'}), 503
-    sheet_id = get_sheet_id(sheet, hdrs)
-    if sheet_id is None:
-        return jsonify({'error': 'Sheet not found'}), 404
-    url = f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}:batchUpdate'
-    body = {'requests': [{'deleteDimension': {'range': {
-        'sheetId': sheet_id,
-        'dimension': 'ROWS',
-        'startIndex': row_number - 1,
-        'endIndex': row_number,
-    }}}]}
-    resp = requests.post(url, json=body, headers=hdrs)
-    if not resp.ok:
-        return jsonify({'error': _google_error(resp)}), resp.status_code
+    db_execute('DELETE FROM rows WHERE id=%s AND sheet_name=%s', (row_id, sheet))
     return jsonify({'ok': True})
 
 
-# ---- Admin: Sheet management (uses user OAuth token) ----
+# ---- Export ----
+
+@app.route('/api/export/<sheet>')
+def export_sheet(sheet):
+    if sheet not in load_config()['active']:
+        return jsonify({'error': 'Unknown sheet'}), 400
+    rows = db_execute(
+        'SELECT shk, kolichestvo, nomer_koroba, data FROM rows WHERE sheet_name=%s ORDER BY id',
+        (sheet,), fetch='all'
+    )
+    wb = Workbook()
+    ws = wb.active
+    ws.title = sheet[:31]
+    ws.append(['ШК', 'Количество', 'Номер короба', 'Дата'])
+    for r in rows:
+        ws.append([r['shk'], r['kolichestvo'], r['nomer_koroba'], r['data']])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=f'{sheet}.xlsx'
+    )
+
+
+# ---- Admin: Sheet management (requires admin session) ----
 
 @app.route('/api/admin/sheets', methods=['GET'])
+@require_admin
 def admin_get_sheets():
     return jsonify(load_config())
 
 
 @app.route('/api/admin/sheets', methods=['POST'])
+@require_admin
 def admin_add_sheet():
     data = request.json
     name = data.get('name', '').strip()
@@ -224,17 +240,13 @@ def admin_add_sheet():
         return jsonify({'error': 'Лист уже существует'}), 400
     if name in config['deleted']:
         return jsonify({'error': 'Лист удалён — используйте восстановление'}), 400
-    url = f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}:batchUpdate'
-    body = {'requests': [{'addSheet': {'properties': {'title': name}}}]}
-    resp = requests.post(url, json=body, headers=user_headers(request))
-    if not resp.ok:
-        return jsonify({'error': _google_error(resp)}), resp.status_code
+    db_execute('INSERT INTO sheets (name, status) VALUES (%s, %s)', (name, 'active'))
     config['active'].append(name)
-    save_config(config)
     return jsonify({'ok': True, 'config': config})
 
 
 @app.route('/api/admin/sheets/rename', methods=['PUT'])
+@require_admin
 def admin_rename_sheet():
     data = request.json
     old_name = data.get('old_name', '').strip()
@@ -246,45 +258,46 @@ def admin_rename_sheet():
         return jsonify({'error': 'Лист не найден'}), 404
     if new_name in config['active']:
         return jsonify({'error': 'Имя уже занято'}), 400
-    sheet_id = get_sheet_id(old_name, user_headers(request))
-    if sheet_id is None:
-        return jsonify({'error': 'Лист не найден в Google Sheets'}), 404
-    url = f'https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}:batchUpdate'
-    body = {'requests': [{'updateSheetProperties': {
-        'properties': {'sheetId': sheet_id, 'title': new_name},
-        'fields': 'title'
-    }}]}
-    resp = requests.post(url, json=body, headers=user_headers(request))
-    if not resp.ok:
-        return jsonify({'error': _google_error(resp)}), resp.status_code
+    db_transaction([
+        ('UPDATE sheets SET name=%s WHERE name=%s', (new_name, old_name)),
+        ('UPDATE rows SET sheet_name=%s WHERE sheet_name=%s', (new_name, old_name)),
+    ])
     idx = config['active'].index(old_name)
     config['active'][idx] = new_name
-    save_config(config)
     return jsonify({'ok': True, 'config': config})
 
 
 @app.route('/api/admin/sheets/delete', methods=['POST'])
+@require_admin
 def admin_delete_sheet():
     name = request.json.get('name', '').strip()
     config = load_config()
     if name not in config['active']:
         return jsonify({'error': 'Лист не найден'}), 404
+    db_execute('UPDATE sheets SET status=%s WHERE name=%s', ('deleted', name))
     config['active'].remove(name)
     config['deleted'].append(name)
-    save_config(config)
     return jsonify({'ok': True, 'config': config})
 
 
 @app.route('/api/admin/sheets/restore', methods=['POST'])
+@require_admin
 def admin_restore_sheet():
     name = request.json.get('name', '').strip()
     config = load_config()
     if name not in config['deleted']:
         return jsonify({'error': 'Лист не найден в удалённых'}), 404
+    db_execute('UPDATE sheets SET status=%s WHERE name=%s', ('active', name))
     config['deleted'].remove(name)
     config['active'].append(name)
-    save_config(config)
     return jsonify({'ok': True, 'config': config})
+
+
+try:
+    with app.app_context():
+        init_db()
+except Exception as e:
+    print(f'DB init failed: {e}')
 
 
 if __name__ == '__main__':
