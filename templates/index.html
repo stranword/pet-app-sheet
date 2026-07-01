@@ -57,8 +57,13 @@
 
   .cam-overlay { display: none; position: fixed; inset: 0; background: #000; z-index: 50; flex-direction: column; align-items: center; justify-content: center; }
   .cam-overlay.open { display: flex; }
+  #cam-native { width: 100%; max-width: 480px; position: relative; }
+  #cam-video { width: 100%; display: block; }
   #cam-reader { width: 100%; max-width: 480px; }
   #cam-reader video { width: 100% !important; border-radius: 0; }
+  .scan-frame { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 80%; height: 100px; border: 2px solid rgba(255,255,255,0.85); border-radius: 8px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.45); pointer-events: none; }
+  .scan-frame::after { content: ''; position: absolute; left: 0; right: 0; top: 20%; height: 2px; background: #ff3333; box-shadow: 0 0 8px #ff3333; animation: scanline 1.5s ease-in-out infinite; }
+  @keyframes scanline { 0%,100% { top: 15%; } 50% { top: 80%; } }
   .cam-hint { color: rgba(255,255,255,0.7); font-size: 13px; margin-top: 16px; text-align: center; }
   .cam-close { position: absolute; top: 16px; right: 16px; background: rgba(0,0,0,.7); color: #fff; border: 2px solid rgba(255,255,255,.5); border-radius: 10px; padding: 12px 20px; font-size: 16px; cursor: pointer; z-index: 51; }
 
@@ -136,6 +141,10 @@
 </div>
 
 <div class="cam-overlay" id="cam-overlay">
+  <div id="cam-native" style="display:none">
+    <video id="cam-video" autoplay playsinline muted></video>
+    <div class="scan-frame"></div>
+  </div>
   <div id="cam-reader"></div>
   <div class="cam-hint">Наведите штрихкод на полосу</div>
   <button class="cam-close" id="cam-close">✕ Закрыть</button>
@@ -320,41 +329,94 @@ function inc(id) { const el = document.getElementById(id); el.value = parseInt(e
 function dec(id) { const el = document.getElementById(id); el.value = Math.max(0, parseInt(el.value || 0) - 1); }
 
 // ---- SCANNER ----
+let scannerStream = null;
+let scannerActive = false;
+
 document.getElementById('btn-scan').addEventListener('click', openScanner);
 document.getElementById('cam-close').addEventListener('click', closeScanner);
 
 async function openScanner() {
-  const overlay = document.getElementById('cam-overlay');
-  overlay.classList.add('open');
+  document.getElementById('cam-overlay').classList.add('open');
+  if ('BarcodeDetector' in window) {
+    document.getElementById('cam-native').style.display = 'block';
+    document.getElementById('cam-reader').style.display = 'none';
+    await startNativeScanner();
+  } else {
+    document.getElementById('cam-native').style.display = 'none';
+    document.getElementById('cam-reader').style.display = 'block';
+    await startFallbackScanner();
+  }
+}
+
+async function startNativeScanner() {
+  const video = document.getElementById('cam-video');
+  const formats = ['ean_13', 'ean_8', 'code_128', 'code_39', 'qr_code'];
+  let fmts = formats;
+  try {
+    const sup = await BarcodeDetector.getSupportedFormats();
+    fmts = formats.filter(f => sup.includes(f));
+    if (!fmts.length) fmts = formats;
+  } catch (e) {}
+  const detector = new BarcodeDetector({ formats: fmts });
+
+  try {
+    scannerStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+    });
+    video.srcObject = scannerStream;
+    scannerActive = true;
+
+    const loop = async () => {
+      if (!scannerActive) return;
+      if (video.readyState >= 2) {
+        try {
+          const codes = await detector.detect(video);
+          if (codes.length) {
+            document.getElementById('f-shk').value = codes[0].rawValue;
+            closeScanner();
+            return;
+          }
+        } catch (e) {}
+      }
+      requestAnimationFrame(loop);
+    };
+    video.play().then(() => requestAnimationFrame(loop));
+  } catch (err) {
+    alert('Нет доступа к камере: ' + err);
+    document.getElementById('cam-overlay').classList.remove('open');
+  }
+}
+
+async function startFallbackScanner() {
   html5QrCode = new Html5Qrcode('cam-reader', {
     formatsToSupport: [
-      Html5QrcodeSupportedFormats.EAN_13,
-      Html5QrcodeSupportedFormats.EAN_8,
-      Html5QrcodeSupportedFormats.CODE_128,
-      Html5QrcodeSupportedFormats.CODE_39,
+      Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
+      Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39,
       Html5QrcodeSupportedFormats.QR_CODE,
     ],
-    experimentalFeatures: { useBarCodeDetectorIfSupported: true },
     verbose: false,
   });
   try {
     await html5QrCode.start(
       { facingMode: 'environment' },
       { fps: 25, qrbox: { width: 300, height: 120 }, aspectRatio: 1.7777778, disableFlip: true },
-      (decodedText) => {
-        document.getElementById('f-shk').value = decodedText;
-        closeScanner();
-      },
+      (decodedText) => { document.getElementById('f-shk').value = decodedText; closeScanner(); },
       () => {}
     );
   } catch (err) {
     alert('Нет доступа к камере: ' + err);
-    overlay.classList.remove('open');
+    document.getElementById('cam-overlay').classList.remove('open');
     html5QrCode = null;
   }
 }
 
 async function closeScanner() {
+  scannerActive = false;
+  if (scannerStream) {
+    scannerStream.getTracks().forEach(t => t.stop());
+    scannerStream = null;
+    document.getElementById('cam-video').srcObject = null;
+  }
   if (html5QrCode) {
     try { await html5QrCode.stop(); } catch (e) {}
     html5QrCode.clear();
