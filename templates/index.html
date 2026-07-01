@@ -59,6 +59,7 @@
   .cam-overlay.open { display: flex; }
   #cam-reader { width: 100%; max-width: 480px; }
   #cam-reader video { width: 100% !important; border-radius: 0; }
+  .cam-hint { color: rgba(255,255,255,0.7); font-size: 13px; margin-top: 16px; text-align: center; }
   .cam-close { position: absolute; top: 16px; right: 16px; background: rgba(0,0,0,.7); color: #fff; border: 2px solid rgba(255,255,255,.5); border-radius: 10px; padding: 12px 20px; font-size: 16px; cursor: pointer; z-index: 51; }
 
   .btn-submit { width: 100%; background: #1a73e8; color: #fff; border: none; border-radius: 10px; padding: 14px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 6px; }
@@ -136,6 +137,7 @@
 
 <div class="cam-overlay" id="cam-overlay">
   <div id="cam-reader"></div>
+  <div class="cam-hint">Наведите штрихкод на полосу</div>
   <button class="cam-close" id="cam-close">✕ Закрыть</button>
 </div>
 
@@ -324,11 +326,21 @@ document.getElementById('cam-close').addEventListener('click', closeScanner);
 async function openScanner() {
   const overlay = document.getElementById('cam-overlay');
   overlay.classList.add('open');
-  html5QrCode = new Html5Qrcode('cam-reader');
+  html5QrCode = new Html5Qrcode('cam-reader', {
+    formatsToSupport: [
+      Html5QrcodeSupportedFormats.EAN_13,
+      Html5QrcodeSupportedFormats.EAN_8,
+      Html5QrcodeSupportedFormats.CODE_128,
+      Html5QrcodeSupportedFormats.CODE_39,
+      Html5QrcodeSupportedFormats.QR_CODE,
+    ],
+    experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+    verbose: false,
+  });
   try {
     await html5QrCode.start(
       { facingMode: 'environment' },
-      { fps: 10, qrbox: { width: 250, height: 250 } },
+      { fps: 25, qrbox: { width: 300, height: 120 }, aspectRatio: 1.7777778, disableFlip: true },
       (decodedText) => {
         document.getElementById('f-shk').value = decodedText;
         closeScanner();
