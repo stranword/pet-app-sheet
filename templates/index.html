@@ -219,7 +219,7 @@ function applyFilters() {
     if (shkVal && !(r.shk || '').toLowerCase().includes(shkVal)) return false;
     if (filterDate) {
       const rd = parseRecordDate(r.data);
-      if (!rd || rd.getTime() !== filterDate.getTime()) return false;
+      if (!rd || rd < filterDate) return false;
     }
     return true;
   });
